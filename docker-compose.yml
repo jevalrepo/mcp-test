@@ -1,0 +1,86 @@
+services:
+
+  # ── MCP Server ──────────────────────────────────────────────────────────────
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcp-banorte
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8000"
+      MCP_SERVER_NAME: "mcp-banorte"
+      DATABASE_URL: "postgresql+asyncpg://mcp_user:mcp_password@db:5432/mcp_db"
+      FILES_BASE_DIR: "/app/data"
+      OUTPUT_DIR: "/app/output"
+      LOG_LEVEL: "INFO"
+      # Variables de API — sobreescribe con valores reales en .env
+      BANORTE_API_BASE_URL: "${BANORTE_API_BASE_URL:-}"
+      BANORTE_API_KEY: "${BANORTE_API_KEY:-}"
+      BANORTE_API_SECRET: "${BANORTE_API_SECRET:-}"
+    volumes:
+      - ./data:/app/data        # Excel, plantillas, archivos de entrada
+      - ./output:/app/output    # PPTX, PDFs y cualquier archivo generado
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - mcp_net
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/sse')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: mcp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mcp_user
+      POSTGRES_PASSWORD: mcp_password
+      POSTGRES_DB: mcp_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d   # Scripts SQL de inicialización
+    networks:
+      - mcp_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcp_user -d mcp_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── pgAdmin (opcional — comentar en producción) ──────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: mcp-pgadmin
+    restart: unless-stopped
+    profiles: ["dev"]   # Solo se levanta con: docker compose --profile dev up
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@banorte.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+    networks:
+      - mcp_net
+
+
+# ── Volúmenes ──────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:    # PostgreSQL sí usa volumen nombrado (datos internos del motor)
+
+
+# ── Red interna ────────────────────────────────────────────────────────────────
+networks:
+  mcp_net:
+    driver: bridge
