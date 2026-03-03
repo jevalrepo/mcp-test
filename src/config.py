@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     banorte_api_secret: str = Field(default="", alias="BANORTE_API_SECRET")
     banorte_timeout: int = Field(default=30, alias="BANORTE_TIMEOUT")
 
+    # Power Automate (webhook para publicar archivos en SharePoint)
+    power_automate_webhook_url: str = Field(default="", alias="POWER_AUTOMATE_WEBHOOK_URL")
+
     # Logging
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 

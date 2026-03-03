@@ -20,9 +20,12 @@ Datos / plantillas:
     plantilla_ppm.xlsx   ← Excel con los datos de proyectos
 """
 
+import base64
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
+
+import httpx
 
 from src.config import settings
 from src.server import mcp
@@ -161,6 +164,56 @@ def listar_proyectos_ppm(
         }
         for r, g, ri in projects
     ]
+
+
+@mcp.tool()
+def publicar_presentacion_sharepoint(
+    nombre_archivo: Annotated[
+        str, "Nombre del PPTX a publicar, sin extensión (ej. 'reporte_marzo')"
+    ],
+    destinatario: Annotated[
+        str,
+        "Correo electrónico para notificación. Deja vacío para no enviar correo.",
+    ] = "",
+) -> str:
+    """
+    Publica un PPTX generado en SharePoint via Power Automate.
+
+    El archivo debe haber sido generado previamente con generar_presentacion_ppm().
+    Power Automate recibe el archivo y lo guarda en la carpeta de SharePoint
+    configurada en el flujo. Opcionalmente envía una notificación por correo.
+
+    Requiere POWER_AUTOMATE_WEBHOOK_URL configurado en las variables de entorno.
+    """
+    webhook_url = settings.power_automate_webhook_url
+    if not webhook_url:
+        raise ValueError(
+            "POWER_AUTOMATE_WEBHOOK_URL no está configurado. "
+            "Agrégalo al archivo .env con la URL del webhook de Power Automate."
+        )
+
+    pptx_file = _OUTPUT_DIR / f"{nombre_archivo}.pptx"
+    if not pptx_file.exists():
+        raise FileNotFoundError(
+            f"No encontré el archivo: {pptx_file}\n"
+            f"Genera la presentación primero con generar_presentacion_ppm()."
+        )
+
+    contenido_base64 = base64.b64encode(pptx_file.read_bytes()).decode("utf-8")
+
+    payload = {
+        "nombre_archivo": pptx_file.name,
+        "contenido_base64": contenido_base64,
+        "destinatario": destinatario,
+    }
+
+    response = httpx.post(webhook_url, json=payload, timeout=60)
+    response.raise_for_status()
+
+    msg = f"Archivo '{pptx_file.name}' publicado en SharePoint exitosamente."
+    if destinatario:
+        msg += f"\nNotificación enviada a: {destinatario}"
+    return msg
 
 
 @mcp.tool()
