@@ -1,12 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(unzip -l scripts.zip)",
-      "Bash(unzip -o scripts.zip -d scripts_tmp/)",
-      "Bash(\"/c/Users/a2277415/source/Desarrollo/bin/WPy64-31380/python/python.exe\" --version)",
-      "Bash(\"/c/Users/a2277415/source/Desarrollo/bin/WPy64-31380/python/python.exe\" -c \":*)",
-      "mcp__banorte__generar_presentacion_ppm",
-      "mcp__banorte__listar_proyectos_ppm"
+      "Bash(*)",
+      "mcp__banorte__*"
     ]
   }
 }

@@ -356,7 +356,7 @@ Herramientas transversales disponibles para cualquier contexto o feature.
 | Hoja      | Contenido                                                       |
 |-----------|-----------------------------------------------------------------|
 | `RESUMEN` | Un registro por proyecto: folio, nombre, objetivo, costos, fechas, avance, lider |
-| `GANTT`   | Actividades por proyecto: responsable, fechas inicio/fin, avance, color |
+| `GANTT`   | Actividades por proyecto: responsable, fechas inicio/fin, avance |
 | `RIESGOS` | Riesgos por proyecto: descripción, responsable, mitigación, fecha |
 | `ETAPAS`  | Estado de cada etapa del ciclo de vida del proyecto             |
 

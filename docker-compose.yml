@@ -27,6 +27,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
+        required: false   # PPM usa SQLite; db solo es necesario para los tools genéricos de SQL
     networks:
       - mcp_net
     healthcheck:

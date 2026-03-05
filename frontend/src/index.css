@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: #f5f5f7;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  font-variant-numeric: tabular-nums;
+}
+
+button,
+[role="button"],
+.MuiButton-root,
+.MuiIconButton-root {
+  font-family: Consolas, monospace !important;
+}
+
+button *,
+[role="button"] *,
+.MuiButton-root *,
+.MuiIconButton-root * {
+  font-family: inherit !important;
+}
+
+table thead th {
+  font-weight: 700 !important;
+}

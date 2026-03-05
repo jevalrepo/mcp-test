@@ -12,7 +12,6 @@ import textwrap
 
 
 
-from openpyxl import load_workbook
 COMPACT_MIN_ROW_H = 12000           # ~0.13" in EMU
 LABEL_INSIDE_THRESHOLD = 220000     # bar width threshold to place label inside
 
@@ -879,27 +878,38 @@ def duplicate_slide_full(prs, src_slide):
     src_part = src_slide.part
     dst_part = dst_slide.part
 
+    _R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+    # Recopila solo los rIds que realmente aparecen en el XML copiado.
+    # slideLayout y notesSlide ya los gestiona add_slide(); no los tocamos.
+    rids_en_xml = set()
+    for el in dst_slide._element.iter():
+        for attr in el.attrib.keys():
+            if _R_NS in attr:
+                rids_en_xml.add(el.get(attr))
+
+    # Reasigna únicamente las relaciones referenciadas en el XML
     rid_map = {}
-
-    # remapea TODOS los blips (incluye los que estén dentro de grupos)
-    blips = dst_slide._element.xpath(".//a:blip")
-    for blip in blips:
-        for attr in (
-            "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed",
-            "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}link",
-        ):
-            old_rid = blip.get(attr)
-            if not old_rid:
-                continue
-
-            if old_rid not in rid_map:
-                rel = src_part.rels.get(old_rid)
-                if rel is None:
-                    continue
+    for old_rid in rids_en_xml:
+        rel = src_part.rels.get(old_rid)
+        if rel is None:
+            continue
+        try:
+            if rel.is_external:
+                new_rid = dst_part.relate_to(rel._target, rel.reltype, is_external=True)
+            else:
                 new_rid = dst_part.relate_to(rel._target, rel.reltype)
-                rid_map[old_rid] = new_rid
+            rid_map[old_rid] = new_rid
+        except Exception:
+            pass
 
-            blip.set(attr, rid_map[old_rid])
+    # Actualiza atributos rId en el XML
+    for el in dst_slide._element.iter():
+        for attr in list(el.attrib.keys()):
+            if _R_NS in attr:
+                old_rid = el.get(attr)
+                if old_rid and old_rid in rid_map:
+                    el.set(attr, rid_map[old_rid])
 
     return dst_slide
 
@@ -1225,13 +1235,7 @@ def _draw_gantt(slide, gantt_rows, gen_prefix="gen_gantt_"):
             prog.name = f"{gen_prefix}bar_prog_{act_id}"
             prog.fill.solid()
 
-            col = (_gget(g, "color", None) or "VERDE").strip().upper()
-            if col == "AMARILLO":
-                prog.fill.fore_color.rgb = RGBColor(255, 192, 0)
-            elif col == "ROJO":
-                prog.fill.fore_color.rgb = RGBColor(192, 0, 0)
-            else:
-                prog.fill.fore_color.rgb = RGBColor(0, 176, 80)
+            prog.fill.fore_color.rgb = RGBColor(0, 176, 80)
 
             prog.line.color.rgb = RGBColor(0, 0, 0)
 
@@ -1342,50 +1346,12 @@ def fill_slide(slide, resumen, gantt_rows, riesgos_rows, etapas_row=None, gen_pr
 
 
 
-def build_etapas_by_folio(excel_path: str, sheet_name: str = "ETAPAS") -> dict:
-    """
-    Lee la hoja ETAPAS del Excel y devuelve un dict:
-        { folio_ppm (str) : {col: value, ...} }
-    Requiere que exista una columna 'folio_ppm'.
-    """
-    wb = load_workbook(excel_path, data_only=True)
-    if sheet_name not in wb.sheetnames:
-        raise ValueError(f"No existe la hoja '{sheet_name}' en el Excel.")
-    ws = wb[sheet_name]
-
-    rows = list(ws.iter_rows(values_only=True))
-    if not rows:
-        return {}
-
-    headers = [str(h).strip() if h is not None else "" for h in rows[0]]
-    try:
-        folio_idx = [h.lower() for h in headers].index("folio_ppm")
-    except ValueError:
-        raise ValueError("La hoja ETAPAS debe tener una columna llamada 'folio_ppm'.")
-
-    out = {}
-    for r in rows[1:]:
-        if r is None:
-            continue
-        folio = r[folio_idx]
-        if folio is None or str(folio).strip() == "":
-            continue
-        folio_key = str(folio).strip()
-        out[folio_key] = {headers[i]: r[i] for i in range(len(headers))}
-    return out
-
-def build_ppt_multi(template_path: str, out_path: str, projects, etapas_by_folio: dict = None, etapas_excel_path: str = None, etapas_sheet_name: str = "ETAPAS", gen_prefix="gen_gantt_"):
+def build_ppt_multi(template_path: str, out_path: str, projects, etapas_by_folio: dict = None, gen_prefix="gen_gantt_"):
     """
     Genera un PPTX con 1 slide por proyecto a partir de la slide 0 de la plantilla.
-    - projects puede ser una lista de tuplas:
-        (resumen, gantt, riesgos)  o
-        (resumen, gantt, riesgos, etapas_row)
-    - Si se pasa etapas_by_folio (dict folio_ppm -> dict fila ETAPAS), y el item viene sin etapas_row,
-      se resuelve automáticamente usando resumen.folio_ppm.
+    - projects: lista de tuplas (resumen, gantt, riesgos)
+    - etapas_by_folio: dict {folio_ppm -> {nombre_etapa: estatus}} cargado desde SQLite
     """
-    # AUTOLOAD_ETAPAS: si no te pasan etapas_by_folio, lo carga desde el Excel
-    if etapas_by_folio is None and etapas_excel_path:
-        etapas_by_folio = build_etapas_by_folio(etapas_excel_path, sheet_name=etapas_sheet_name)
 
     prs = Presentation(template_path)
     template_slide = prs.slides[0]
@@ -1403,7 +1369,20 @@ def build_ppt_multi(template_path: str, out_path: str, projects, etapas_by_folio
         s = duplicate_slide_full(prs, template_slide)
         fill_slide(s, resumen, gantt, riesgos, etapas_row=etapas_row, gen_prefix=gen_prefix)
 
-    prs.slides._sldIdLst.remove(prs.slides._sldIdLst[0])
+    # Elimina el slide plantilla correctamente:
+    # 1) obtener el rId ANTES de remover del XML
+    # 2) remover del sldIdLst
+    # 3) remover también del presentation.rels, si no se hace PowerPoint
+    #    detecta una relación huérfana y reporta el PPTX como corrupto.
+    _R_NS_PKG = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    tmpl_sl_el = prs.slides._sldIdLst[0]
+    tmpl_rId = tmpl_sl_el.get(f"{{{_R_NS_PKG}}}id")
+    prs.slides._sldIdLst.remove(tmpl_sl_el)
+    if tmpl_rId:
+        try:
+            del prs.part.rels._rels[tmpl_rId]
+        except (KeyError, AttributeError):
+            pass
     prs.save(out_path)
 
 

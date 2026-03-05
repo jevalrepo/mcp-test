@@ -1,0 +1,22 @@
+.data-table-headers-consolas div[role="columnheader"],
+.data-table-headers-consolas div[role="columnheader"] *,
+.data-table-headers-consolas [role="columnheader"] span,
+.data-table-headers-consolas [role="columnheader"] button {
+  font-family: Consolas, monospace !important;
+}
+
+.data-table-headers-consolas [role="columnheader"] {
+  background: linear-gradient(180deg, #fff7f9 0%, #ffeef3 100%) !important;
+  border-bottom: 1px solid #f9c6d3 !important;
+  font-weight: 700 !important;
+}
+
+.data-table-headers-consolas [role="columnheader"] * {
+  font-weight: 700 !important;
+}
+
+.data-table-no-footer .MuiDataGrid-footerContainer,
+.data-table-no-footer [class*="footerContainer"],
+.data-table-no-footer [class*="FooterContainer"] {
+  display: none !important;
+}
