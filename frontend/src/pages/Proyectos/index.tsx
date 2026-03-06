@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import AddIcon from "@mui/icons-material/Add";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import SlideshowIcon from "@mui/icons-material/Slideshow";
 import DownloadIcon from "@mui/icons-material/Download";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -27,6 +26,78 @@ function pct(val: number) {
   return `${Math.round(val)}%`;
 }
 
+const ESTATUS_OPTIONS = ["", "Ejecución", "Por revisar", "Cerrado", "Cancelado"] as const;
+
+const ESTATUS_STYLE: Record<string, string> = {
+  "Ejecución":  "bg-green-100 text-green-800",
+  "Por revisar": "bg-amber-100 text-amber-800",
+  "Cerrado":    "bg-gray-100 text-gray-600",
+  "Cancelado":  "bg-red-100 text-red-800",
+};
+const ESTATUS_CARD_ORDER = ["Ejecución", "Por revisar", "Cerrado", "Cancelado"] as const;
+
+function EstatusCell({ value, onUpdate }: { value: string | null; onUpdate: (v: string | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (btnRef.current?.contains(e.target as Node) || menuRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  function toggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (open) { setOpen(false); return; }
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (rect) setPos({ top: rect.bottom, left: rect.left, width: Math.max(rect.width, 148) });
+    setOpen(true);
+  }
+
+  const val = value ?? "";
+  const chipStyle = ESTATUS_STYLE[val] ?? "";
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={toggle}
+        className={`w-full text-left rounded px-2 py-0.5 text-xs font-semibold border border-gray-200 cursor-pointer ${chipStyle || "text-gray-400 bg-white"}`}
+        style={{ fontFamily: "Consolas, monospace" }}
+      >
+        {val || "—"}
+      </button>
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          style={{ position: "fixed", top: pos.top, left: pos.left, minWidth: pos.width, zIndex: 9999 }}
+          className="bg-white border border-gray-200 rounded shadow-lg overflow-hidden"
+        >
+          {ESTATUS_OPTIONS.map((opt) => (
+            <button
+              key={opt}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onUpdate(opt === "" ? null : opt); setOpen(false); }}
+              className={`w-full text-left px-3 py-1.5 text-xs block hover:bg-gray-50 ${ESTATUS_STYLE[opt] ? `font-semibold ${ESTATUS_STYLE[opt]}` : "text-gray-500"}`}
+              style={{ fontFamily: "Consolas, monospace" }}
+            >
+              {opt === "" ? "—" : opt}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
 function toUiPercent(val: unknown) {
   const n = Number(val ?? 0);
   if (!Number.isFinite(n)) return 0;
@@ -41,6 +112,14 @@ function toDbPercent(val: unknown) {
 
 function round1(val: number) {
   return Math.round(val * 10) / 10;
+}
+
+function normalizeStatus(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
 function onlyDigits(value: string) {
@@ -77,6 +156,7 @@ const EMPTY_CREATE_FORM = {
   fecha_inicio: "",
   fecha_fin_liberacion: "",
   fecha_fin_garantia: "",
+  area_nombre: "Ahorro y Previsión",
   lider_cliente_nombre: "",
   ern: "",
   le: "",
@@ -84,12 +164,116 @@ const EMPTY_CREATE_FORM = {
 
 const DEFAULT_PPTX_NAME = "salida_proyectos";
 
+const FILTER_ESTATUS_OPTIONS = ESTATUS_OPTIONS.filter((o) => o !== "");
+
+function StatusFilterDropdown({ selected, onChange }: { selected: string[]; onChange: (v: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (btnRef.current?.contains(e.target as Node) || menuRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  function toggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (open) { setOpen(false); return; }
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (rect) setPos({ top: rect.bottom + 4, left: rect.left });
+    setOpen(true);
+  }
+
+  function toggleOption(opt: string) {
+    onChange(selected.includes(opt) ? selected.filter((x) => x !== opt) : [...selected, opt]);
+  }
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={toggle}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors whitespace-nowrap ${
+          selected.length > 0
+            ? "border-[#dc143c] bg-[#dc143c]/5 text-[#dc143c]"
+            : "border-gray-300 bg-white text-gray-600 hover:border-gray-400"
+        }`}
+        style={{ fontFamily: "Consolas, monospace" }}
+      >
+        Estatus
+        {selected.length > 0 && (
+          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-[#dc143c] text-white text-[10px] font-bold">
+            {selected.length}
+          </span>
+        )}
+      </button>
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 9999, minWidth: 160 }}
+          className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden py-1"
+        >
+          {FILTER_ESTATUS_OPTIONS.map((opt) => (
+            <label
+              key={opt}
+              className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-gray-50 select-none"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(opt)}
+                onChange={() => toggleOption(opt)}
+                className="w-4 h-4 accent-[#dc143c]"
+              />
+              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${ESTATUS_STYLE[opt] ?? "text-gray-700"}`}>{opt}</span>
+            </label>
+          ))}
+          {selected.length > 0 && (
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => { onChange([]); setOpen(false); }}
+              className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:text-gray-600 border-t border-gray-100 mt-1"
+            >
+              Limpiar filtro
+            </button>
+          )}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
 export default function Proyectos() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const toast = useToast();
   const confirm = useConfirm();
-  const [search, setSearch] = useState("");
+  const [search, setSearchRaw] = useState<string>(
+    () => sessionStorage.getItem("ppm-search") ?? ""
+  );
+  const [filterStatuses, setFilterStatusesRaw] = useState<string[]>(() => {
+    const stored = sessionStorage.getItem("ppm-filter-statuses");
+    // null = nunca tocado → default Ejecución; "" = usuario limpió → []
+    return stored === null ? ["Ejecución"] : stored.split(",").filter(Boolean);
+  });
+
+  const setSearch = (val: string) => {
+    sessionStorage.setItem("ppm-search", val);
+    setSearchRaw(val);
+  };
+
+  const setFilterStatuses = (val: string[]) => {
+    // guardar vacío ("") para distinguir "limpió explícitamente" de "nunca tocado"
+    sessionStorage.setItem("ppm-filter-statuses", val.join(","));
+    setFilterStatusesRaw(val);
+  };
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createError, setCreateError] = useState("");
   const [createForm, setCreateForm] = useState({ ...EMPTY_CREATE_FORM });
@@ -98,7 +282,8 @@ export default function Proyectos() {
   // ── Estado PPTX ──────────────────────────────────────────────────────────
   const [isPptxOpen, setIsPptxOpen] = useState(false);
   const [pptxNombre, setPptxNombre] = useState(DEFAULT_PPTX_NAME);
-  const [pptxSoloActivos, setPptxSoloActivos] = useState(true);
+  const ALL_PPTX_STATUSES = ["Ejecución", "Por revisar", "Cerrado", "Cancelado"] as const;
+  const [pptxStatuses, setPptxStatuses] = useState<string[]>(["Ejecución"]);
   const [pptxResult, setPptxResult] = useState<{ url_descarga: string; proyectos: number } | null>(null);
 
   const { data: proyectos = [], isLoading } = useQuery({
@@ -157,7 +342,7 @@ export default function Proyectos() {
 
   function openPptxModal() {
     setPptxNombre(DEFAULT_PPTX_NAME);
-    setPptxSoloActivos(true);
+    setPptxStatuses(["Ejecución"]);
     setPptxResult(null);
     generarMut.reset();
     setIsPptxOpen(true);
@@ -172,7 +357,7 @@ export default function Proyectos() {
 
   function submitGenerar() {
     const nombre = pptxNombre.trim() || DEFAULT_PPTX_NAME;
-    generarMut.mutate({ nombre_archivo: nombre, solo_activos: pptxSoloActivos });
+    generarMut.mutate({ nombre_archivo: nombre, estatuses: pptxStatuses });
   }
 
   // ── Columnas y filas del DataGrid de presentaciones ──────────────────────
@@ -276,6 +461,7 @@ export default function Proyectos() {
       fecha_inicio: createForm.fecha_inicio || null,
       fecha_fin_liberacion: createForm.fecha_fin_liberacion || null,
       fecha_fin_garantia: createForm.fecha_fin_garantia || null,
+      area_nombre: createForm.area_nombre,
       lider_cliente_nombre: createForm.lider_cliente_nombre.trim() || null,
       ern: createForm.ern.trim() || null,
       le: createForm.le.trim() || null,
@@ -287,12 +473,13 @@ export default function Proyectos() {
   const columns = useMemo<DataTableColumn<any>[]>(
     () => [
       { accessorKey: "folio_ppm", header: "Folio", size: 95, meta: { editable: false } },
-      { accessorKey: "nombre_proyecto", header: "Proyecto", size: 430 },
+      { accessorKey: "nombre_proyecto", header: "Nombre", size: 470 },
       { accessorKey: "le", header: "LE", size: 230 },
       {
-        accessorKey: "avance_planeado",
-        header: "Planeado",
-        size: 100,
+        accessorKey: "avance_total",
+        header: "Proyecto",
+        size: 110,
+        meta: { editable: false },
         cell: ({ cell }) => {
           const percent = Number(cell.getValue() ?? 0);
           const value = `${percent.toFixed(0)}%`;
@@ -308,114 +495,102 @@ export default function Proyectos() {
         },
       },
       {
-        accessorKey: "avance_real",
-        header: "Real",
-        size: 100,
-        cell: ({ cell, row }) => {
-          const real = Number(cell.getValue() ?? 0);
-          const plan = Number(row.original.avance_planeado ?? 0);
-          const retrasado = real < plan;
-          const value = `${real.toFixed(0)}%`;
+        accessorKey: "avance_actividad",
+        header: "Actividad",
+        size: 110,
+        meta: { editable: false },
+        cell: ({ cell }) => {
+          const val = cell.getValue();
+          if (val === null || val === undefined) {
+            return <span className="text-gray-400 text-xs">—</span>;
+          }
+          const percent = Number(val);
+          const value = `${percent.toFixed(0)}%`;
           return (
             <div className="w-full bg-gray-200 rounded-full h-5 overflow-hidden">
-              {real > 0 ? (
-                <div
-                  className={`h-5 rounded-full flex items-center justify-center px-2 ${retrasado ? "bg-red-500" : "bg-green-500"}`}
-                  style={{ width: value }}
-                >
+              {percent > 0 ? (
+                <div className="bg-green-500 h-5 rounded-full flex items-center justify-center px-2" style={{ width: value }}>
                   <span className="text-[11px] text-white leading-none whitespace-nowrap">{value}</span>
                 </div>
-              ) : null}
+              ) : (
+                <div className="flex items-center h-5 px-2">
+                  <span className="text-[11px] text-gray-400 leading-none">{value}</span>
+                </div>
+              )}
             </div>
           );
         },
       },
       {
-        accessorKey: "activo",
-        header: "Activo",
-        size: 50,
+        accessorKey: "estatus",
+        header: "Estatus",
+        size: 110,
         meta: { editable: false },
-        cell: ({ cell, row }) => {
-          const current = Number(cell.getValue()) === 1 ? 1 : 0;
-          const isActive = current === 1;
-          return (
-            <button
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                const next = isActive ? 0 : 1;
-                updateMut.mutate({ folio: row.original.folio_ppm, data: { activo: next } });
-              }}
-              className="w-full px-1 py-0.5 text-sm flex items-center justify-center transition-colors bg-transparent border-0 shadow-none"
-              style={{ fontFamily: "Consolas, monospace", fontWeight: 600 }}
-              title={isActive ? "Activo (clic para desactivar)" : "Inactivo (clic para activar)"}
-            >
-              {isActive ? <CheckCircleIcon sx={{ fontSize: 18, color: "#16a34a" }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: 18, color: "#94a3b8" }} />}
-            </button>
-          );
-        },
+        cell: ({ cell, row }) => (
+          <EstatusCell
+            value={cell.getValue() as string | null}
+            onUpdate={(v) => updateMut.mutate({ folio: row.original.folio_ppm, data: { estatus: v } })}
+          />
+        ),
       },
     ],
     [updateMut],
   );
 
   const filteredProyectos = useMemo(() => {
+    let result: any[] = proyectos;
+
+    if (filterStatuses.length > 0) {
+      result = result.filter((p: any) => filterStatuses.includes(p.estatus ?? ""));
+    }
+
     const needle = search.trim().toLowerCase();
-    if (!needle) return proyectos;
+    if (needle) {
+      result = result.filter((p: any) => {
+        const haystack = [p.folio_ppm, p.nombre_proyecto, p.lider_cliente_nombre, p.estatus]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(needle);
+      });
+    }
 
-    return proyectos.filter((p: any) => {
-      const estado = p.activo ? "activo" : "inactivo";
-      const haystack = [
-        p.folio_ppm,
-        p.nombre_proyecto,
-        p.lider_cliente_nombre,
-        estado,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
+    return result;
+  }, [proyectos, search, filterStatuses]);
 
-      return haystack.includes(needle);
-    });
-  }, [proyectos, search]);
-
-  const tableProyectos = useMemo(
-    () =>
-      filteredProyectos.map((p: any) => ({
-        ...p,
-        avance_planeado: toUiPercent(p.avance_planeado),
-        avance_real: toUiPercent(p.avance_real),
-      })),
-    [filteredProyectos],
-  );
+  const tableProyectos = useMemo(() => filteredProyectos, [filteredProyectos]);
 
   const stats = useMemo(() => {
     const total = proyectos.length;
-    const activosRows = proyectos.filter((p: any) => Number(p.activo) === 1);
-    const activos = activosRows.length;
-    const inactivos = total - activos;
-    const retrasados = activosRows.filter(
+    const estatusCountsMap = new Map<string, number>();
+    for (const p of proyectos) {
+      const status = String(p?.estatus ?? "").trim();
+      if (!status) continue;
+      estatusCountsMap.set(status, (estatusCountsMap.get(status) ?? 0) + 1);
+    }
+    const estatusCounts = [...estatusCountsMap.entries()]
+      .map(([estatus, count]) => ({ estatus, count, norm: normalizeStatus(estatus) }))
+      .sort((a, b) => {
+        const orderMap = new Map(ESTATUS_CARD_ORDER.map((x, i) => [normalizeStatus(x), i]));
+        const ai = orderMap.has(a.norm) ? orderMap.get(a.norm)! : Number.MAX_SAFE_INTEGER;
+        const bi = orderMap.has(b.norm) ? orderMap.get(b.norm)! : Number.MAX_SAFE_INTEGER;
+        if (ai !== bi) return ai - bi;
+        return a.estatus.localeCompare(b.estatus);
+      });
+
+    const enEjecucion = proyectos.filter((p: any) => normalizeStatus(p.estatus).includes("ejecucion"));
+    const retrasados = enEjecucion.filter(
       (p: any) => toUiPercent(p.avance_real) < toUiPercent(p.avance_planeado),
     ).length;
-    const promedio_avance_real = activos
-      ? round1(
-          activosRows.reduce((acc: number, p: any) => acc + toUiPercent(p.avance_real), 0) / activos,
-        )
-      : 0;
-    const promedio_avance_planeado = activos
-      ? round1(
-          activosRows.reduce((acc: number, p: any) => acc + toUiPercent(p.avance_planeado), 0) / activos,
-        )
+    const promedio_avance_real = enEjecucion.length
+      ? round1(enEjecucion.reduce((acc: number, p: any) => acc + toUiPercent(p.avance_real), 0) / enEjecucion.length)
       : 0;
 
     return {
       total,
-      activos,
-      inactivos,
+      estatusCounts,
       retrasados,
-      al_dia: activos - retrasados,
       promedio_avance_real,
-      promedio_avance_planeado,
     };
   }, [proyectos]);
 
@@ -428,7 +603,7 @@ export default function Proyectos() {
         </div>
         <button
           onClick={openPptxModal}
-          className="flex items-center gap-2 px-4 py-2 bg-[#610000] text-white text-sm rounded-lg hover:bg-[#4a0000] transition-colors shadow-sm"
+          className="flex items-center gap-2 px-4 py-2 bg-[#16a34a] text-white text-sm rounded-lg hover:bg-[#15803d] transition-colors shadow-sm"
           style={{ fontFamily: "Consolas, monospace" }}
         >
           <SlideshowIcon fontSize="small" />
@@ -439,6 +614,19 @@ export default function Proyectos() {
       {stats &&
         (() => {
           const avance = stats.promedio_avance_real ?? 0;
+          const statusLabel = (norm: string, original: string) => {
+            if (norm === "ejecucion") return "En ejecución";
+            if (norm === "cerrado") return "Cerrados";
+            if (norm === "cancelado") return "Cancelados";
+            return original;
+          };
+          const statusColor = (norm: string) => {
+            if (norm === "ejecucion") return "bg-green-50 text-green-700 border border-green-200";
+            if (norm === "por revisar") return "bg-yellow-50 text-yellow-700 border border-yellow-200";
+            if (norm === "cerrado") return "bg-gray-100 text-gray-700 border border-gray-300";
+            if (norm === "cancelado") return "bg-red-50 text-red-700 border border-red-200";
+            return "bg-white text-gray-700 border border-gray-200";
+          };
           const avanceColor =
             avance >= 80
               ? "bg-green-50 text-green-700 border border-green-200"
@@ -451,18 +639,22 @@ export default function Proyectos() {
               : stats.retrasados <= 2
                 ? "bg-yellow-50 text-yellow-700 border border-yellow-200"
                 : "bg-red-50 text-red-700 border border-red-200";
+          const cards = [
+            { label: "Proyectos", value: stats.total, color: "bg-white text-gray-700 border border-gray-200" },
+            ...stats.estatusCounts.map((s: any) => ({
+              label: statusLabel(s.norm, s.estatus),
+              value: s.count,
+              color: statusColor(s.norm),
+            })),
+            { label: "Retrasados", value: stats.retrasados, color: retrasadoColor },
+            { label: "Avance real", value: `${avance}%`, color: avanceColor },
+          ];
           return (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
-              {[
-                { label: "Total", value: stats.total, color: "bg-white text-gray-700 border border-gray-200" },
-                { label: "Activos", value: stats.activos, color: "bg-green-50 text-green-700 border border-green-200" },
-                { label: "Inactivos", value: stats.inactivos, color: "bg-gray-50 text-gray-500 border border-gray-200" },
-                { label: "Retrasados", value: stats.retrasados, color: retrasadoColor },
-                { label: "Avance real", value: `${avance}%`, color: avanceColor },
-              ].map((s) => (
-                <div key={s.label} className={`rounded-xl p-4 shadow-sm ${s.color}`}>
-                  <div className="text-3xl font-bold">{s.value}</div>
-                  <div className="text-xs font-medium mt-1 opacity-80 uppercase tracking-wide">{s.label}</div>
+            <div className="flex flex-nowrap gap-2 mb-6">
+              {cards.map((s) => (
+                <div key={s.label} className={`rounded-xl p-3 shadow-sm min-w-0 flex-1 ${s.color}`}>
+                  <div className="text-2xl font-bold leading-tight">{s.value}</div>
+                  <div className="text-[11px] font-medium mt-1 opacity-80 uppercase tracking-wide truncate">{s.label}</div>
                 </div>
               ))}
             </div>
@@ -475,18 +667,9 @@ export default function Proyectos() {
           data={tableProyectos}
           isLoading={isLoading}
           getRowId={(row) => row.folio_ppm}
+          contextDeleteLabel="Eliminar proyecto"
           onEditSave={async (original, values) => {
-            const payload = { ...values } as Record<string, unknown>;
-            if ("activo" in payload) {
-              payload.activo = Number(payload.activo) === 1 ? 1 : 0;
-            }
-            if ("avance_planeado" in payload) {
-              payload.avance_planeado = toDbPercent(payload.avance_planeado);
-            }
-            if ("avance_real" in payload) {
-              payload.avance_real = toDbPercent(payload.avance_real);
-            }
-            await updateMut.mutateAsync({ folio: original.folio_ppm, data: payload });
+            await updateMut.mutateAsync({ folio: original.folio_ppm, data: values });
           }}
           onContextView={(row) => navigate(`/ppm/proyectos/${row.folio_ppm}`)}
           onContextDelete={async (row) => {
@@ -496,13 +679,14 @@ export default function Proyectos() {
           topToolbar={(
             <>
               <button
-                className="flex items-center gap-1 px-3 py-1.5 bg-[#dc143c] text-white text-sm rounded hover:bg-[#9c0720] transition-colors"
+                className="flex items-center gap-1 px-3 py-1.5 bg-[#16a34a] text-white text-sm rounded hover:bg-[#15803d] transition-colors"
                 onClick={openCreateModal}
               >
                 <AddIcon fontSize="small" /> Nuevo proyecto
               </button>
 
               <div className="flex items-center gap-2 w-full sm:w-auto">
+                <StatusFilterDropdown selected={filterStatuses} onChange={setFilterStatuses} />
                 <div className="relative w-full sm:w-56">
                   <SearchIcon fontSize="small" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
@@ -530,7 +714,7 @@ export default function Proyectos() {
       {/* ── Modal Generar PPTX ── */}
       {isPptxOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-xl bg-white border border-gray-200 shadow-xl p-6 flex flex-col max-h-[90vh]" style={{ fontFamily: "Consolas, monospace" }}>
+          <div className="w-full max-w-2xl rounded-xl bg-white border border-gray-200 shadow-xl p-6 flex flex-col" style={{ fontFamily: "Consolas, monospace" }}>
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
                 <SlideshowIcon sx={{ color: "#610000" }} />
@@ -556,19 +740,53 @@ export default function Proyectos() {
                     className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#dc143c]/25 focus:border-[#dc143c] disabled:bg-gray-50"
                     placeholder={DEFAULT_PPTX_NAME}
                   />
-                  <p className="text-xs text-gray-400 mt-1">Se guardará como <span className="font-medium">{(pptxNombre.trim() || DEFAULT_PPTX_NAME)}.pptx</span></p>
                 </div>
 
-                <div className="mb-5 flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="solo-activos"
-                    checked={pptxSoloActivos}
-                    onChange={(e) => setPptxSoloActivos(e.target.checked)}
-                    disabled={generarMut.isPending}
-                    className="w-4 h-4 accent-[#dc143c]"
-                  />
-                  <label htmlFor="solo-activos" className="text-sm text-gray-700 cursor-pointer">Solo proyectos activos</label>
+                <div className="mb-5">
+                  <p className="text-xs text-gray-500 mb-2">Estatus a incluir en la presentación</p>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    {ALL_PPTX_STATUSES.map((s) => {
+                      const id = `pptx-st-${s}`;
+                      const checked = pptxStatuses.includes(s);
+                      return (
+                        <label key={s} htmlFor={id} className="flex items-center gap-1.5 cursor-pointer select-none text-sm text-gray-700">
+                          <input
+                            type="checkbox"
+                            id={id}
+                            checked={checked}
+                            disabled={generarMut.isPending}
+                            onChange={() =>
+                              setPptxStatuses((prev) =>
+                                checked ? prev.filter((x) => x !== s) : [...prev, s]
+                              )
+                            }
+                            className="w-4 h-4 accent-[#dc143c]"
+                          />
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${ESTATUS_STYLE[s] ?? ""}`}>{s}</span>
+                        </label>
+                      );
+                    })}
+
+                    <div className="ml-auto">
+                      <button
+                        onClick={submitGenerar}
+                        disabled={generarMut.isPending || pptxStatuses.length === 0}
+                        className="flex items-center gap-2 px-4 py-1.5 text-sm rounded bg-[#16a34a] text-white hover:bg-[#15803d] disabled:opacity-60 transition-colors"
+                      >
+                        {generarMut.isPending ? (
+                          <>
+                            <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                            Generando...
+                          </>
+                        ) : (
+                          <>
+                            <SlideshowIcon fontSize="small" />
+                            Generar
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {generarMut.isError && (
@@ -576,26 +794,6 @@ export default function Proyectos() {
                     {(generarMut.error as any)?.message || "Error al generar la presentación"}
                   </div>
                 )}
-
-                <div className="flex justify-end gap-2">
-                  <button
-                    onClick={submitGenerar}
-                    disabled={generarMut.isPending}
-                    className="flex items-center gap-2 px-4 py-1.5 text-sm rounded bg-[#dc143c] text-white hover:bg-[#9c0720] disabled:opacity-60 transition-colors"
-                  >
-                    {generarMut.isPending ? (
-                      <>
-                        <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                        Generando...
-                      </>
-                    ) : (
-                      <>
-                        <SlideshowIcon fontSize="small" />
-                        Generar
-                      </>
-                    )}
-                  </button>
-                </div>
               </>
             ) : (
               <div className="text-center py-2">
@@ -607,7 +805,7 @@ export default function Proyectos() {
                   <a
                     href={pptxResult.url_descarga}
                     download
-                    className="flex items-center gap-2 px-4 py-2 text-sm rounded bg-[#dc143c] text-white hover:bg-[#9c0720] transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 text-sm rounded bg-[#16a34a] text-white hover:bg-[#15803d] transition-colors"
                   >
                     <DownloadIcon fontSize="small" />
                     Descargar PPTX
@@ -623,14 +821,18 @@ export default function Proyectos() {
             )}
 
             {/* ── Historial de archivos generados ── */}
-            <div className="mt-5 pt-4 border-t border-gray-100">
+            <div className="mt-3 pt-3 border-t border-gray-100">
               <p className="text-xs font-semibold text-[#610000] uppercase tracking-wide mb-2">
                 Archivos generados
               </p>
               <div
                 ref={pptxGridRef}
                 className="data-table-headers-consolas data-table-no-footer w-full overflow-hidden rounded border border-gray-200"
-                style={{ height: 360, fontFamily: "Consolas, monospace", "--grid-font-family": "Consolas, monospace" } as React.CSSProperties}
+                style={{
+                  height: pptxGridRows.length === 0 ? 56 : Math.min(pptxGridRows.length * 32 + 124, 6 * 32 + 124),
+                  fontFamily: "Consolas, monospace",
+                  "--grid-font-family": "Consolas, monospace",
+                } as React.CSSProperties}
               >
                 {pptxGridRows.length === 0 ? (
                   <div className="flex items-center justify-center h-full text-sm text-gray-400">
@@ -662,11 +864,11 @@ export default function Proyectos() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-[#610000]">Nuevo proyecto</h2>
               <button
-                className="text-sm text-gray-500 hover:text-gray-700"
+                className="text-sm text-gray-400 hover:text-gray-600"
                 onClick={closeCreateModal}
                 disabled={createMut.isPending}
               >
-                Cerrar
+                ✕
               </button>
             </div>
 
@@ -758,7 +960,11 @@ export default function Proyectos() {
 
             <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/40 p-4">
               <h3 className="text-sm font-semibold text-[#610000] mb-3">Responsables</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Área</label>
+                  <input value={createForm.area_nombre} disabled className="w-full rounded border border-gray-200 bg-gray-100 px-2 py-1.5 text-sm text-gray-400 cursor-not-allowed" />
+                </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Lider Cliente</label>
                   <input value={createForm.lider_cliente_nombre} onChange={(e) => setCreateForm((p) => ({ ...p, lider_cliente_nombre: e.target.value }))} className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#dc143c]/25 focus:border-[#dc143c]" />
@@ -777,18 +983,11 @@ export default function Proyectos() {
             </form>
             {createError ? <div className="text-sm text-red-600 mb-3">{createError}</div> : null}
 
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={closeCreateModal}
-                disabled={createMut.isPending}
-                className="px-3 py-1.5 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
-              >
-                Cancelar
-              </button>
+            <div className="flex justify-end">
               <button
                 onClick={saveCreateProyecto}
                 disabled={createMut.isPending}
-                className="px-3 py-1.5 text-sm rounded bg-[#dc143c] text-white hover:bg-[#9c0720] disabled:opacity-50"
+                className="px-3 py-1.5 text-sm rounded bg-[#16a34a] text-white hover:bg-[#15803d] disabled:opacity-50"
               >
                 {createMut.isPending ? "Guardando..." : "Guardar"}
               </button>

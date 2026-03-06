@@ -135,18 +135,43 @@ def _riesgo_to_row(r: Riesgo) -> RiesgoRow:
     )
 
 
-def _load_projects(solo_activos: bool = True):
+def _db_estatus_to_ppt(s) -> str:
+    """Convierte estatus de etapa de la BD al valor que espera el ppt_writer."""
+    if not s:
+        return ""
+    s = s.strip().upper()
+    if s == "COMPLETADO":
+        return "COMPLETO"
+    if s in ("VERDE", "AMARILLO", "ROJO"):
+        return "EN_CURSO"
+    return s
+
+
+def _load_projects(estatuses: list | None = None):
     """
     Carga proyectos desde SQLite.
     Retorna (lista_proyectos, etapas_by_folio).
       - lista_proyectos: [(Resumen, [GanttRow], [RiesgoRow]), ...]
       - etapas_by_folio: {folio_ppm: {nombre_etapa: estatus}}
+    Si estatuses es una lista, filtra por los estatus indicados (None/'' = sin estatus).
+    Si estatuses es None no aplica ningún filtro.
     """
+    from sqlalchemy import or_
     db = get_session()
     try:
         q = db.query(Proyecto).order_by(Proyecto.folio_ppm)
-        if solo_activos:
-            q = q.filter(Proyecto.activo == 1)
+        if estatuses is not None:
+            has_null = any(s is None or s == "" for s in estatuses)
+            non_null = [s for s in estatuses if s]
+            if has_null and non_null:
+                q = q.filter(or_(Proyecto.estatus.in_(non_null), Proyecto.estatus == None, Proyecto.estatus == ""))
+            elif has_null:
+                q = q.filter(or_(Proyecto.estatus == None, Proyecto.estatus == ""))
+            elif non_null:
+                q = q.filter(Proyecto.estatus.in_(non_null))
+            else:
+                # Lista vacía → no incluir nada
+                return [], {}
         rows = q.all()
         result = []
         etapas_by_folio = {}
@@ -156,7 +181,8 @@ def _load_projects(solo_activos: bool = True):
             result.append((_proyecto_to_resumen(p), gantt, riesgos))
             if p.etapas:
                 etapas_by_folio[p.folio_ppm] = {
-                    e.nombre: e.estatus for e in sorted(p.etapas, key=lambda x: x.orden)
+                    e.nombre: _db_estatus_to_ppt(e.estatus)
+                    for e in sorted(p.etapas, key=lambda x: x.id)
                 }
         return result, etapas_by_folio
     finally:
@@ -184,9 +210,10 @@ def generar_presentacion_ppm(
     nombre_archivo: Annotated[
         str, "Nombre del PPTX de salida, sin extensión (ej. 'reporte_marzo')"
     ] = "salida_proyectos",
-    solo_activos: Annotated[
-        bool, "Si True omite proyectos donde activo=0. Default: True"
-    ] = True,
+    estatuses: Annotated[
+        list | None,
+        "Lista de estatus a incluir (ej. ['Ejecución', 'Por revisar']). None = todos."
+    ] = None,
 ) -> str:
     """
     Genera una presentación PowerPoint con un slide por proyecto.
@@ -197,8 +224,8 @@ def generar_presentacion_ppm(
     if not _DEFAULT_TEMPLATE.exists():
         raise FileNotFoundError(f"No encontré master.pptx en: {_DEFAULT_TEMPLATE}")
 
-    projects, etapas_by_folio = _load_projects(solo_activos)
-    all_projects, _ = _load_projects(False)
+    projects, etapas_by_folio = _load_projects(estatuses)
+    all_projects, _ = _load_projects(None)
     omitidos = len(all_projects) - len(projects)
 
     out_file = _OUTPUT_DIR / f"{nombre_archivo}.pptx"

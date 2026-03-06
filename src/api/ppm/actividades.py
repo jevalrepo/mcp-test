@@ -2,7 +2,7 @@ from datetime import datetime
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from src.tools.ppm.db.database import get_session
-from src.tools.ppm.db.models import Actividad, HistorialAvance, Proyecto
+from src.tools.ppm.db.models import Actividad, Etapa, HistorialAvance, Proyecto
 
 
 ACTIVIDADES_DEFAULT = [
@@ -38,6 +38,61 @@ def _ensure_default_actividades(db, folio: str) -> None:
                 estatus_etapa=None,
                 orden=orden,
             ))
+
+
+# Mapa: nombre_etapa_db → lista de actividades que la controlan
+ETAPA_ACTIVIDAD_MAP = {
+    "Análisis_tecnico":  ["Análisis Técnico"],
+    "Diseño_detallado":  ["Diseño Detallado"],
+    "Realización":       ["Realización"],
+    "QA":                ["Pruebas modulares", "Pruebas de certificación"],
+    "Implementación":    ["Implementación"],
+    "Garantía":          ["Garantía"],
+}
+
+
+def _avance_to_estatus(avance) -> str | None:
+    """Convierte un valor de avance al estatus de etapa correspondiente."""
+    if avance is None:
+        return None
+    v = float(avance)
+    if v == 0:
+        return None
+    if v == 100:
+        return "COMPLETO"
+    return "EN_CURSO"
+
+
+def _sync_etapa(db, folio: str, actividad_nombre: str) -> None:
+    """Recalcula el estatus de la etapa que controla la actividad dada."""
+    etapa_nombre = None
+    for etapa, actividades in ETAPA_ACTIVIDAD_MAP.items():
+        if actividad_nombre in actividades:
+            etapa_nombre = etapa
+            break
+    if not etapa_nombre:
+        return
+
+    actividades_ctrl = ETAPA_ACTIVIDAD_MAP[etapa_nombre]
+    acts = (
+        db.query(Actividad)
+        .filter_by(folio_ppm=folio)
+        .filter(Actividad.actividad.in_(actividades_ctrl))
+        .all()
+    )
+
+    avances = [float(a.avance) if a.avance is not None else None for a in acts]
+
+    if all(v is None or v == 0 for v in avances):
+        nuevo_estatus = None
+    elif all(v == 100 for v in avances if v is not None) and len(avances) == len(actividades_ctrl):
+        nuevo_estatus = "COMPLETADO"
+    else:
+        nuevo_estatus = "EN_CURSO"
+
+    etapa = db.query(Etapa).filter_by(folio_ppm=folio, nombre=etapa_nombre).first()
+    if etapa:
+        etapa.estatus = nuevo_estatus
 
 
 def _serialize(a: Actividad) -> dict:
@@ -118,6 +173,8 @@ async def update_actividad(request: Request) -> JSONResponse:
                     fecha=datetime.utcnow(),
                 ))
             obj.avance = nuevo
+
+        _sync_etapa(db, obj.folio_ppm, str(obj.actividad or ""))
 
         db.commit()
         db.refresh(obj)

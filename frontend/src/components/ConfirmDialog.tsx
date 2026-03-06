@@ -69,7 +69,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                 className={`px-4 py-1.5 text-sm rounded-lg text-white font-medium transition-colors ${
                   isDanger
                     ? "bg-red-600 hover:bg-red-700"
-                    : "bg-[#610000] hover:bg-[#4a0000]"
+                    : "bg-[#16a34a] hover:bg-[#15803d]"
                 }`}
               >
                 {dialog.confirmLabel ?? "Confirmar"}

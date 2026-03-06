@@ -2,6 +2,8 @@
 
 Servidor **MCP (Model Context Protocol)** en Python con transporte **HTTP/SSE**, pensado para integrarse con aplicaciones propias. Expone herramientas organizadas en dos categorías: **utilidades base** (archivos, base de datos, APIs, datos, PDFs) y **features de negocio** (cada una en su propia carpeta con toda su lógica encapsulada).
 
+Incluye además una **interfaz web React** (frontend) y una **API REST** para la feature PPM, accesibles desde el mismo servidor en el puerto 8000.
+
 ---
 
 ## Tabla de contenidos
@@ -23,6 +25,8 @@ Servidor **MCP (Model Context Protocol)** en Python con transporte **HTTP/SSE**,
     - [Reportes PDF](#reportes-pdf)
   - [Features de negocio](#features-de-negocio)
     - [PPM — Project Portfolio Management](#ppm--project-portfolio-management)
+- [API REST PPM](#api-rest-ppm)
+- [Frontend web](#frontend-web)
 - [Conectar tu app al servidor](#conectar-tu-app-al-servidor)
 - [Cómo agregar una nueva feature](#cómo-agregar-una-nueva-feature)
 - [Servicios Docker](#servicios-docker)
@@ -33,33 +37,36 @@ Servidor **MCP (Model Context Protocol)** en Python con transporte **HTTP/SSE**,
 ## Arquitectura
 
 ```
-Tu app / LLM
-     │
-     │  GET  /sse        ← stream Server-Sent Events
-     │  POST /messages/  ← mensajes JSON-RPC
-     ▼
-┌─────────────────────────────────┐
-│        mcp-banorte:8000         │
-│  FastMCP  (HTTP/SSE transport)  │
-│                                 │
-│  tools/archivos   tools/datos   │
-│  tools/database   tools/reportes│
-│  tools/apis                     │
-└──────────────┬──────────────────┘
+Navegador (React)          LLM / AI client
+       │                         │
+       │  HTTP/REST              │  GET  /sse
+       │  /api/ppm/*             │  POST /messages/
+       ▼                         ▼
+┌────────────────────────────────────────────┐
+│              mcp-banorte:8000              │
+│  FastMCP  (HTTP/SSE transport)             │
+│                                            │
+│  REST API  /api/ppm/*  (Starlette routes)  │
+│  Frontend  /ppm        (static React app)  │
+│                                            │
+│  tools/archivos   tools/datos              │
+│  tools/database   tools/reportes           │
+│  tools/apis       tools/ppm               │
+└──────────────┬─────────────────────────────┘
                │
        ┌───────┴────────┐
-       │  PostgreSQL:5432│
+       │  SQLite / PG   │
        └────────────────┘
 ```
 
-**Transporte SSE** — el servidor expone dos endpoints permanentes:
-
-> Cada feature nueva se integra como un bloque independiente; las utilidades base (archivos, BD, APIs) son transversales y cualquier feature puede usarlas.
+**Transporte SSE** — el servidor expone dos endpoints permanentes para clientes MCP:
 
 | Método | Ruta         | Uso                                          |
 |--------|--------------|----------------------------------------------|
 | `GET`  | `/sse`       | El cliente abre una conexión SSE persistente |
 | `POST` | `/messages/` | El cliente envía mensajes JSON-RPC           |
+
+> Cada feature nueva se integra como un bloque independiente; las utilidades base (archivos, BD, APIs) son transversales y cualquier feature puede usarlas.
 
 ---
 
@@ -68,39 +75,51 @@ Tu app / LLM
 ```
 mcp-banorte/
 ├── src/
-│   ├── __init__.py
 │   ├── config.py          # Settings con pydantic-settings (lee .env)
 │   ├── server.py          # Instancia global: mcp = FastMCP(...)
-│   ├── main.py            # Entry point: registra tools y arranca SSE
-│   └── tools/
-│       │
-│       ├── # ── Utilidades base (transversales) ──────────────────
-│       ├── archivos.py    # Operaciones de sistema de archivos
-│       ├── database.py    # Operaciones SQL async
-│       ├── apis.py        # Cliente HTTP genérico + helpers Banorte
-│       ├── datos.py       # Procesamiento de datos con pandas
-│       ├── reportes.py    # Generación de PDFs con ReportLab
-│       │
-│       └── # ── Features de negocio (una carpeta por feature) ────
-│           └── ppm/                  # Feature: Project Portfolio Management
-│               ├── __init__.py       # Tools MCP: generar/listar presentaciones
-│               ├── excel_reader.py   # Lógica interna: lee Excel PPM
-│               └── ppt_writer.py     # Lógica interna: construye el PPTX
+│   ├── main.py            # Entry point: registra tools, rutas REST y arranca SSE
+│   ├── tools/
+│   │   ├── archivos.py    # Operaciones de sistema de archivos
+│   │   ├── database.py    # Operaciones SQL async
+│   │   ├── apis.py        # Cliente HTTP genérico + helpers Banorte
+│   │   ├── datos.py       # Procesamiento de datos con pandas
+│   │   ├── reportes.py    # Generación de PDFs con ReportLab
+│   │   └── ppm/           # Feature: Project Portfolio Management
+│   │       ├── __init__.py     # Tools MCP del portafolio
+│   │       ├── ppt_writer.py   # Construcción de PPTX
+│   │       └── db/
+│   │           ├── models.py   # Modelos SQLAlchemy (ORM)
+│   │           ├── database.py # Sesión SQLite / PostgreSQL
+│   │           └── init_db.py  # Inicialización de la BD
+│   └── api/
+│       └── ppm/           # Endpoints REST consumidos por el frontend
+│           ├── proyectos.py
+│           ├── actividades.py
+│           ├── riesgos.py
+│           ├── etapas.py
+│           └── presentaciones.py
 │
-├── init-db/               # Scripts SQL ejecutados al levantar PostgreSQL
+├── frontend/              # Interfaz web React + TypeScript (Vite)
+│   └── src/
+│       ├── App.tsx
+│       ├── api/client.ts  # Funciones HTTP hacia /api/ppm/*
+│       ├── components/    # DataTable, Toast, ConfirmDialog, Layout
+│       └── pages/         # Proyectos, DetalleProyecto, Etapas
+│
 ├── data/
-│   └── ppm/               # Plantillas de la feature PPM
-│       ├── master.pptx
-│       └── plantilla_ppm.xlsx
+│   └── ppm/
+│       ├── ppm.db         # Base de datos SQLite (portafolio de proyectos)
+│       └── master.pptx    # Plantilla de presentación PowerPoint
 ├── output/
 │   ├── pdfs/              # PDFs generados por reportes.py
 │   └── ppm/               # PPTX generados por la feature PPM
-├── Dockerfile             # Multi-stage, usuario no-root
-├── docker-compose.yml     # Servicios: mcp + db + pgadmin (perfil dev)
+├── init-db/               # Scripts SQL ejecutados al levantar PostgreSQL
+├── documentation/         # Documentación adicional del proyecto
+├── test_server.py         # Script de prueba de conectividad MCP via SSE
+├── Dockerfile
+├── docker-compose.yml
 ├── requirements.txt
-├── .env.example
-├── .gitignore
-└── .dockerignore
+└── .env.example
 ```
 
 ---
@@ -113,10 +132,9 @@ Cada funcionalidad de negocio es una **carpeta independiente** dentro de `src/to
 src/tools/<nombre-feature>/
   __init__.py        ← OBLIGATORIO: aquí van todos los @mcp.tool() de la feature
   modulo_interno.py  ← lógica interna (no expone tools directamente)
-  otro_modulo.py     ← más lógica interna si se necesita
 
 data/<nombre-feature>/
-  plantilla.xlsx     ← archivos de datos / templates propios de la feature
+  ...                ← archivos de datos / templates propios de la feature
 
 output/<nombre-feature>/
   ...                ← archivos generados por la feature
@@ -135,6 +153,7 @@ Eso es todo. El servidor detecta automáticamente los tools al arrancar.
 ## Requisitos
 
 - Python 3.12+
+- Node.js 20+ (solo para desarrollar el frontend)
 - Docker + Docker Compose (para el stack completo)
 
 Dependencias principales:
@@ -149,7 +168,6 @@ Dependencias principales:
 | `pandas>=2.2`        | Procesamiento de datos                  |
 | `reportlab>=4.2`     | Generación de PDFs                      |
 | `python-pptx>=1.0`   | Generación de presentaciones (feature PPM) |
-| `openpyxl>=3.1`      | Lectura de Excel (feature PPM)          |
 | `pydantic-settings`  | Gestión de configuración                |
 
 ---
@@ -159,23 +177,27 @@ Dependencias principales:
 ### Desarrollo local
 
 ```bash
-# 1. Clonar y entrar al directorio
+# 1. Entrar al directorio
 cd mcp-banorte
 
-# 2. Crear entorno virtual e instalar dependencias
+# 2. Crear entorno virtual e instalar dependencias Python
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 # 3. Configurar variables de entorno
 cp .env.example .env
-# Editar .env con tus valores
 
-# 4. Arrancar el servidor (SQLite por defecto)
+# 4. Arrancar el backend (SQLite por defecto)
 python -m src.main
+
+# 5. (Opcional) Arrancar el frontend en modo desarrollo
+cd frontend
+npm install
+npm run dev    # http://localhost:5173/ppm
 ```
 
-El servidor queda disponible en `http://localhost:8000`.
+En producción el frontend se sirve como archivos estáticos desde `frontend/dist/` en la ruta `/ppm`.
 
 ### Docker
 
@@ -190,10 +212,13 @@ docker compose up --build
 docker compose --profile dev up --build
 ```
 
-| Servicio  | URL                          |
-|-----------|------------------------------|
-| MCP SSE   | `http://localhost:8000/sse`  |
-| pgAdmin   | `http://localhost:5050`      |
+| Servicio     | URL                               |
+|--------------|-----------------------------------|
+| Backend/API  | `http://localhost:8000`           |
+| Frontend PPM | `http://localhost:8000/ppm`       |
+| MCP SSE      | `http://localhost:8000/sse`       |
+| Archivos     | `http://localhost:8000/archivos`  |
+| pgAdmin      | `http://localhost:5050`           |
 
 > **pgAdmin** — credenciales por defecto: `admin@banorte.local` / `admin`
 
@@ -210,7 +235,7 @@ Copia `.env.example` a `.env` y ajusta los valores:
 | `MCP_SERVER_NAME`       | `mcp-banorte`                        | Nombre del servidor MCP             |
 | `DATABASE_URL`          | `sqlite+aiosqlite:///./data/mcp.db`  | Cadena de conexión a BD             |
 | `FILES_BASE_DIR`        | `./data`                             | Raíz para operaciones de archivos   |
-| `OUTPUT_DIR`            | `./output`                           | Directorio de salida de PDFs        |
+| `OUTPUT_DIR`            | `./output`                           | Directorio de salida de PDFs/PPTX   |
 | `BANORTE_API_BASE_URL`  | _(vacío)_                            | URL base de la API de Banorte       |
 | `BANORTE_API_KEY`       | _(vacío)_                            | API key para autenticación          |
 | `BANORTE_API_SECRET`    | _(vacío)_                            | Secret para autenticación           |
@@ -261,8 +286,8 @@ Herramientas transversales disponibles para cualquier contexto o feature.
 **Ejemplo de `ejecutar_consulta`:**
 ```json
 {
-  "sql": "SELECT * FROM clientes WHERE ciudad = :ciudad LIMIT 10",
-  "parametros": { "ciudad": "Monterrey" }
+  "sql": "SELECT * FROM proyectos WHERE activo = :activo",
+  "parametros": { "activo": 1 }
 }
 ```
 
@@ -341,30 +366,102 @@ Herramientas transversales disponibles para cualquier contexto o feature.
 
 ### PPM — Project Portfolio Management
 
-> Feature: [src/tools/ppm/](src/tools/ppm/) — Genera presentaciones PowerPoint de seguimiento de proyectos a partir de un Excel con hojas `RESUMEN`, `GANTT`, `RIESGOS` y `ETAPAS`.
+> Feature: [src/tools/ppm/](src/tools/ppm/) — Gestión de portafolio de proyectos. Datos almacenados en **SQLite** (`data/ppm/ppm.db`). Genera presentaciones PowerPoint, reportes PDF y exports CSV.
 >
-> Plantillas en [data/ppm/](data/ppm/) · Salida en `output/ppm/`
+> Plantilla PPTX en [data/ppm/master.pptx](data/ppm/master.pptx) · Salida en `output/ppm/`
 
-| Tool                        | Parámetros principales                            | Descripción                                         |
-|-----------------------------|---------------------------------------------------|-----------------------------------------------------|
-| `generar_presentacion_ppm`  | `nombre_archivo`, `excel_path`, `solo_activos`    | Genera un PPTX con un slide por proyecto            |
-| `listar_proyectos_ppm`      | `excel_path`                                      | Lista proyectos del Excel con avance y estado       |
-| `listar_presentaciones_ppm` | _(sin parámetros)_                                | Lista los PPTX generados en `output/ppm/`           |
+#### Tools MCP disponibles
 
-**Estructura del Excel PPM (`plantilla_ppm.xlsx`):**
+**Generación y exportación:**
 
-| Hoja      | Contenido                                                       |
-|-----------|-----------------------------------------------------------------|
-| `RESUMEN` | Un registro por proyecto: folio, nombre, objetivo, costos, fechas, avance, lider |
-| `GANTT`   | Actividades por proyecto: responsable, fechas inicio/fin, avance |
-| `RIESGOS` | Riesgos por proyecto: descripción, responsable, mitigación, fecha |
-| `ETAPAS`  | Estado de cada etapa del ciclo de vida del proyecto             |
+| Tool                        | Parámetros principales                  | Descripción                                              |
+|-----------------------------|-----------------------------------------|----------------------------------------------------------|
+| `generar_presentacion_ppm`  | `nombre_archivo`, `solo_activos=True`   | Genera un PPTX con un slide por proyecto desde SQLite    |
+| `generar_reporte_pdf_ppm`   | `nombre_archivo`, `solo_activos=True`   | Genera un PDF ejecutivo del portafolio                   |
+| `exportar_proyectos_csv`    | `nombre_archivo`, `solo_activos=False`  | Exporta proyectos a CSV en `output/ppm/`                 |
+| `listar_presentaciones_ppm` | _(sin parámetros)_                      | Lista los PPTX generados en `output/ppm/`                |
+| `listar_proyectos_ppm`      | _(sin parámetros)_                      | Lista todos los proyectos con avance y estado            |
 
-**Flujo de uso:**
+**CRUD de proyectos:**
+
+| Tool                        | Parámetros principales                     | Descripción                                     |
+|-----------------------------|--------------------------------------------|-------------------------------------------------|
+| `agregar_proyecto_ppm`      | `folio`, `nombre`, `objetivo`, ...         | Crea un nuevo proyecto en la BD                 |
+| `actualizar_proyecto_ppm`   | `folio`, `campo`, `valor`                  | Actualiza un campo con registro automático de historial |
+| `activar_proyecto_ppm`      | `folio`                                    | Activa el proyecto (`activo=1`)                 |
+| `desactivar_proyecto_ppm`   | `folio`                                    | Desactiva el proyecto (`activo=0`)              |
+| `duplicar_proyecto_ppm`     | `folio_origen`, `folio_nuevo`, `nombre`    | Clona proyecto con sus actividades y riesgos    |
+| `actualizar_actividad_gantt`| `folio`, `actividad`, `campo`, `valor`     | Actualiza fecha o avance de una actividad GANTT |
+
+**Analíticas:**
+
+| Tool                      | Descripción                                                     |
+|---------------------------|-----------------------------------------------------------------|
+| `proyectos_retrasados_ppm`| Proyectos donde avance real < planeado, ordenados por brecha    |
+| `proyectos_por_lider_ppm` | Agrupa proyectos activos por líder de cliente                   |
+| `estadisticas_ppm`        | KPIs generales del portafolio (totales, promedios, top líderes) |
+
+**Flujo de uso via MCP:**
 ```
-1. Llenar plantilla_ppm.xlsx con los datos del portafolio
-2. Llamar a generar_presentacion_ppm(nombre_archivo="reporte_marzo")
-3. El PPTX se guarda en output/ppm/reporte_marzo.pptx
+1. agregar_proyecto_ppm(folio="F-100001", nombre="Mi proyecto")
+2. actualizar_proyecto_ppm(folio="F-100001", campo="avance_real", valor="75")
+3. generar_presentacion_ppm(nombre_archivo="reporte_abril")
+   → output/ppm/reporte_abril.pptx
+```
+
+---
+
+## API REST PPM
+
+El frontend web consume una API REST servida en el mismo puerto 8000. No requiere autenticación (misma red o localhost).
+
+| Método   | Ruta                              | Descripción                          |
+|----------|-----------------------------------|--------------------------------------|
+| `GET`    | `/api/ppm/proyectos`              | Listar todos los proyectos           |
+| `GET`    | `/api/ppm/proyectos/{folio}`      | Obtener un proyecto                  |
+| `POST`   | `/api/ppm/proyectos`              | Crear proyecto                       |
+| `PUT`    | `/api/ppm/proyectos/{folio}`      | Actualizar proyecto                  |
+| `DELETE` | `/api/ppm/proyectos/{folio}`      | Eliminar proyecto                    |
+| `GET`    | `/api/ppm/historial/{folio}`      | Historial de cambios del proyecto    |
+| `GET`    | `/api/ppm/estadisticas`           | KPIs del portafolio                  |
+| `GET`    | `/api/ppm/actividades`            | Actividades (query: `?folio_ppm=`)   |
+| `POST`   | `/api/ppm/actividades`            | Crear actividad                      |
+| `PUT`    | `/api/ppm/actividades/{id}`       | Actualizar actividad                 |
+| `DELETE` | `/api/ppm/actividades/{id}`       | Eliminar actividad                   |
+| `GET`    | `/api/ppm/riesgos`                | Riesgos (query: `?folio_ppm=`)       |
+| `POST`   | `/api/ppm/riesgos`                | Crear riesgo                         |
+| `PUT`    | `/api/ppm/riesgos/{id}`           | Actualizar riesgo                    |
+| `DELETE` | `/api/ppm/riesgos/{id}`           | Eliminar riesgo                      |
+| `GET`    | `/api/ppm/etapas`                 | Etapas (query: `?folio_ppm=`)        |
+| `POST`   | `/api/ppm/etapas`                 | Crear etapa                          |
+| `PUT`    | `/api/ppm/etapas/{id}`            | Actualizar etapa                     |
+| `DELETE` | `/api/ppm/etapas/{id}`            | Eliminar etapa                       |
+| `GET`    | `/api/ppm/presentaciones`         | Listar archivos PPTX generados       |
+| `POST`   | `/api/ppm/presentaciones`         | Generar nuevo PPTX                   |
+| `DELETE` | `/api/ppm/presentaciones/{nombre}`| Eliminar un PPTX                     |
+| `GET`    | `/descargar/{ruta}`               | Descargar cualquier archivo de output|
+| `GET`    | `/archivos`                       | Listar todos los archivos de output  |
+
+---
+
+## Frontend web
+
+Aplicación React + TypeScript servida en `/ppm`. En desarrollo usa Vite con proxy hacia el backend.
+
+**Páginas:**
+
+| Ruta                      | Descripción                                                    |
+|---------------------------|----------------------------------------------------------------|
+| `/ppm`                    | Lista de proyectos con métricas, búsqueda, edición inline y generador PPTX |
+| `/ppm/proyectos/:folio`   | Detalle del proyecto: actividades, riesgos, etapas, historial  |
+| `/ppm/etapas`             | Gestión de etapas por proyecto                                 |
+
+**Desarrollar el frontend:**
+```bash
+cd frontend
+npm install
+npm run dev    # proxy automático hacia localhost:8000
+npm run build  # genera frontend/dist/ para producción
 ```
 
 ---
@@ -387,8 +484,7 @@ async def main():
 
             # Invocar una herramienta
             result = await session.call_tool(
-                "leer_archivo",
-                {"ruta": "datos/clientes.csv"}
+                "listar_proyectos_ppm", {}
             )
             print(result.content)
 ```
@@ -405,6 +501,11 @@ Para conectar desde **Claude Desktop** u otro cliente MCP compatible:
 }
 ```
 
+Para verificar conectividad ejecuta:
+```bash
+python test_server.py
+```
+
 ---
 
 ## Cómo agregar una nueva feature
@@ -415,13 +516,12 @@ src/tools/mi_feature/
   __init__.py        ← tools MCP
   logica_interna.py  ← código de negocio (sin decoradores MCP)
 
-data/mi_feature/     ← plantillas o archivos de entrada
+data/mi_feature/     ← templates o archivos de entrada
 output/mi_feature/   ← archivos generados
 ```
 
 **Paso 2** — En `__init__.py`, importar `mcp` y definir los tools:
 ```python
-# src/tools/mi_feature/__init__.py
 from typing import Annotated
 from src.server import mcp
 from src.tools.mi_feature.logica_interna import hacer_algo
@@ -449,7 +549,7 @@ El servidor detecta automáticamente los tools al siguiente arranque.
 
 | Servicio      | Imagen               | Puerto | Perfil  | Descripción                         |
 |---------------|----------------------|--------|---------|-------------------------------------|
-| `mcp`         | build local          | 8000   | siempre | Servidor MCP principal              |
+| `mcp`         | build local          | 8000   | siempre | Servidor MCP + API REST + frontend  |
 | `db`          | `postgres:16-alpine` | —      | siempre | PostgreSQL (solo accesible internamente) |
 | `pgadmin`     | `dpage/pgadmin4`     | 5050   | `dev`   | Interfaz web para PostgreSQL        |
 
@@ -457,11 +557,11 @@ El servidor detecta automáticamente los tools al siguiente arranque.
 
 **Volúmenes persistentes:**
 
-| Volumen         | Montado en   | Contenido                    |
-|-----------------|--------------|------------------------------|
-| `postgres_data` | (interno)    | Datos de PostgreSQL          |
-| `mcp_data`      | `/app/data`  | Archivos de trabajo          |
-| `mcp_output`    | `/app/output`| PDFs y otros archivos de salida |
+| Volumen         | Montado en    | Contenido                       |
+|-----------------|---------------|---------------------------------|
+| `postgres_data` | (interno)     | Datos de PostgreSQL             |
+| `mcp_data`      | `/app/data`   | BD SQLite y archivos de trabajo |
+| `mcp_output`    | `/app/output` | PDFs, PPTX y otros archivos     |
 
 ---
 
@@ -472,7 +572,8 @@ El servidor detecta automáticamente los tools al siguiente arranque.
 - **Credenciales** — nunca se hardcodean en el código; se leen del entorno con `pydantic-settings`.
 - **Usuario Docker** — el contenedor corre con usuario no-root (`mcp:mcp`).
 - **Red interna** — PostgreSQL no expone puertos al host; solo es accesible desde la red `mcp_net`.
+- **Nombres de archivo** — los endpoints de descarga y eliminación de PPTX validan que no contengan path traversal.
 
 ---
 
-> Última actualización: 2026-03-03 — Feature PPM integrada, convención de features establecida.
+> Última actualización: 2026-03-05 — Migración a SQLite, frontend React integrado, API REST PPM completa.

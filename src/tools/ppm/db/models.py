@@ -41,6 +41,7 @@ class Proyecto(Base):
 
     avance_planeado = Column(Float, default=0.0)
     avance_real = Column(Float, default=0.0)
+    estatus = Column(String(100))
     descripcion_estatus = Column(Text)
 
     creado_en = Column(DateTime, default=datetime.utcnow)
@@ -90,9 +91,6 @@ class Etapa(Base):
     folio_ppm = Column(String(50), ForeignKey("proyectos.folio_ppm"), nullable=False)
     nombre = Column(String(200), nullable=False)
     estatus = Column(String(20), default="VERDE")  # VERDE | AMARILLO | ROJO | COMPLETADO
-    orden = Column(Integer, default=0)
-    fecha_inicio = Column(String(20))
-    fecha_fin = Column(String(20))
 
     proyecto = relationship("Proyecto", back_populates="etapas")
 

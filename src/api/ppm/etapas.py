@@ -10,9 +10,6 @@ def _serialize(e: Etapa) -> dict:
         "folio_ppm": e.folio_ppm,
         "nombre": e.nombre,
         "estatus": e.estatus,
-        "orden": e.orden,
-        "fecha_inicio": e.fecha_inicio,
-        "fecha_fin": e.fecha_fin,
     }
 
 
@@ -23,7 +20,7 @@ async def list_etapas(request: Request) -> JSONResponse:
         q = db.query(Etapa)
         if folio:
             q = q.filter_by(folio_ppm=folio)
-        rows = q.order_by(Etapa.folio_ppm, Etapa.orden).all()
+        rows = q.order_by(Etapa.folio_ppm, Etapa.id).all()
         return JSONResponse([_serialize(e) for e in rows])
     finally:
         db.close()
@@ -37,9 +34,6 @@ async def create_etapa(request: Request) -> JSONResponse:
             folio_ppm=body["folio_ppm"],
             nombre=body["nombre"],
             estatus=body.get("estatus", "VERDE"),
-            orden=body.get("orden", 0),
-            fecha_inicio=body.get("fecha_inicio"),
-            fecha_fin=body.get("fecha_fin"),
         )
         db.add(obj)
         db.commit()
@@ -57,7 +51,7 @@ async def update_etapa(request: Request) -> JSONResponse:
         if not obj:
             return JSONResponse({"error": "No encontrada"}, status_code=404)
         body = await request.json()
-        for field in ("nombre", "estatus", "orden", "fecha_inicio", "fecha_fin"):
+        for field in ("nombre", "estatus"):
             if field in body:
                 setattr(obj, field, body[field])
         db.commit()

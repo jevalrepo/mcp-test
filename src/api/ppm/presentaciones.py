@@ -31,14 +31,14 @@ async def generar_presentacion(request: Request) -> JSONResponse:
     """POST /api/ppm/presentaciones — genera un PPTX desde SQLite."""
     body = await request.json()
     nombre_archivo = (body.get("nombre_archivo") or "salida_proyectos").strip() or "salida_proyectos"
-    solo_activos = bool(body.get("solo_activos", True))
+    estatuses = body.get("estatuses")  # list[str] | None
 
     if not _TEMPLATE.exists():
         return JSONResponse({"error": f"Plantilla no encontrada: {_TEMPLATE}"}, status_code=500)
 
     _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    projects, etapas_by_folio = _load_projects(solo_activos)
+    projects, etapas_by_folio = _load_projects(estatuses)
     out_file = _OUTPUT_DIR / f"{nombre_archivo}.pptx"
 
     build_ppt_multi(

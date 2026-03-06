@@ -1297,8 +1297,8 @@ def fill_slide(slide, resumen, gantt_rows, riesgos_rows, etapas_row=None, gen_pr
     if tbl and tbl.has_table:
         t = tbl.table
         donor = _get_table_donor_run(t)
-        _set_cell_text_keep_style(t.cell(1, 1), f"{round((_gget(resumen, 'avance_planeado', 0) or 0) * 100)}%", donor)
-        _set_cell_text_keep_style(t.cell(1, 2), f"{round((_gget(resumen, 'avance_real', 0) or 0) * 100)}%", donor)
+        _set_cell_text_keep_style(t.cell(1, 1), f"{round(_to_percent_number(_gget(resumen, 'avance_planeado', 0)))}%", donor)
+        _set_cell_text_keep_style(t.cell(1, 2), f"{round(_to_percent_number(_gget(resumen, 'avance_real', 0)))}%", donor)
 
     sem = _find_shape(slide, "shp_estado_general")
     if sem:

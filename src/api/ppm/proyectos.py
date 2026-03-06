@@ -42,15 +42,12 @@ def _ensure_default_rows(db, folio: str) -> None:
         for e in db.query(Etapa).filter_by(folio_ppm=folio).all()
         if e.nombre is not None
     }
-    for orden, nombre in enumerate(ETAPAS_DEFAULT):
+    for nombre in ETAPAS_DEFAULT:
         if nombre not in existing_etapas:
             db.add(Etapa(
                 folio_ppm=folio,
                 nombre=nombre,
                 estatus=None,
-                orden=orden,
-                fecha_inicio=None,
-                fecha_fin=None,
             ))
 
     existing_acts = {
@@ -92,6 +89,7 @@ def _serialize(p: Proyecto) -> dict:
         "fecha_fin_garantia": p.fecha_fin_garantia,
         "avance_planeado": p.avance_planeado,
         "avance_real": p.avance_real,
+        "estatus": p.estatus,
         "descripcion_estatus": p.descripcion_estatus,
         "creado_en": p.creado_en.isoformat() if p.creado_en else None,
         "actualizado_en": p.actualizado_en.isoformat() if p.actualizado_en else None,
@@ -99,13 +97,51 @@ def _serialize(p: Proyecto) -> dict:
 
 
 async def list_proyectos(request: Request) -> JSONResponse:
+    from datetime import date as _date
+    from collections import defaultdict
     db = get_session()
     try:
         q = db.query(Proyecto)
         if "activo" in request.query_params:
             q = q.filter_by(activo=int(request.query_params["activo"]))
         rows = q.order_by(Proyecto.folio_ppm).all()
-        return JSONResponse([_serialize(p) for p in rows])
+
+        folios = [p.folio_ppm for p in rows]
+        acts_all = db.query(Actividad).filter(Actividad.folio_ppm.in_(folios)).all() if folios else []
+        acts_by_folio: dict = defaultdict(list)
+        for a in acts_all:
+            acts_by_folio[a.folio_ppm].append(a)
+
+        today = str(_date.today())
+        result = []
+        for p in rows:
+            acts = acts_by_folio.get(p.folio_ppm, [])
+            valid = [a for a in acts if a.avance is not None]
+            avance_total = round(sum(float(a.avance) for a in valid) / len(valid)) if valid else 0
+
+            avance_actividad = None
+            for a in sorted(acts, key=lambda x: x.orden if x.orden is not None else 999):
+                if a.fecha_inicio and a.fecha_fin and a.fecha_inicio <= today <= a.fecha_fin:
+                    avance_actividad = round(float(a.avance)) if a.avance is not None else 0
+                    break
+
+            # Fallback: si no hay actividad en rango hoy, mostrar la última (mayor orden)
+            # cuya fecha_fin ya haya pasado.
+            if avance_actividad is None:
+                acts_with_end = sorted(
+                    [a for a in acts if a.fecha_fin],
+                    key=lambda x: x.orden if x.orden is not None else 999,
+                )
+                if acts_with_end and acts_with_end[-1].fecha_fin < today:
+                    last = acts_with_end[-1]
+                    avance_actividad = round(float(last.avance)) if last.avance is not None else 0
+
+            data = _serialize(p)
+            data["avance_total"] = avance_total
+            data["avance_actividad"] = avance_actividad
+            result.append(data)
+
+        return JSONResponse(result)
     finally:
         db.close()
 
@@ -156,6 +192,7 @@ async def create_proyecto(request: Request) -> JSONResponse:
             fecha_fin_garantia=body.get("fecha_fin_garantia"),
             avance_planeado=float(body.get("avance_planeado", 0)),
             avance_real=float(body.get("avance_real", 0)),
+            estatus=body.get("estatus"),
             descripcion_estatus=body.get("descripcion_estatus"),
         )
         db.add(obj)
@@ -197,7 +234,7 @@ async def update_proyecto(request: Request) -> JSONResponse:
                       "lider_cliente_nombre", "ern", "le", "ppm", "horas_internas",
                       "horas_externas", "horas_totales", "costo_total",
                       "fecha_inicio", "fecha_fin_liberacion", "fecha_fin_garantia",
-                      "descripcion_estatus"):
+                      "estatus", "descripcion_estatus"):
             if field in body:
                 setattr(obj, field, body[field])
 

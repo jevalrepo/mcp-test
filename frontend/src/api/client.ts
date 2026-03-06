@@ -38,7 +38,7 @@ export const deleteRiesgo = (id: number) => req<any>(`/riesgos/${id}`, { method:
 
 // Presentaciones PPTX
 export const getPresentaciones = () => req<any[]>("/presentaciones");
-export const generarPresentacion = (data: { nombre_archivo: string; solo_activos: boolean }) =>
+export const generarPresentacion = (data: { nombre_archivo: string; estatuses: string[] | null }) =>
   req<any>("/presentaciones", { method: "POST", body: JSON.stringify(data) });
 export const eliminarPresentacion = (nombre: string) =>
   req<any>(`/presentaciones/${encodeURIComponent(nombre)}`, { method: "DELETE" });

@@ -10,7 +10,7 @@ export interface DataTableColumn<T extends object> {
   accessorKey: keyof T | string;
   header: string;
   size?: number;
-  meta?: { editable?: boolean };
+  meta?: { editable?: boolean; sortable?: boolean };
   cell?: (ctx: { cell: { getValue: () => unknown }; row: DataTableRow<T> }) => ReactNode;
   editor?: (props: any) => ReactNode;
   editorParams?: Record<string, unknown>;
@@ -27,6 +27,7 @@ interface DataTableProps<T extends object> {
   renderRowActions?: (row: DataTableRow<T>, actions: { startEdit: () => void }) => ReactNode;
   onContextView?: (original: T) => void;
   onContextDelete?: (original: T) => void;
+  contextDeleteLabel?: string;
   topToolbar?: ReactNode;
 }
 
@@ -48,6 +49,7 @@ export default function DataTable<T extends object>({
   onEditSave,
   onContextView,
   onContextDelete,
+  contextDeleteLabel = "Eliminar fila",
   topToolbar,
 }: DataTableProps<T>) {
   const [gridRows, setGridRows] = useState<GridRow<T>[]>([]);
@@ -76,7 +78,7 @@ export default function DataTable<T extends object>({
   const gridColumns = useMemo<Column[]>(() => {
     const baseWidths = columns.map((column) => column.size ?? 160);
     const totalBase = baseWidths.reduce((acc, width) => acc + width, 0);
-    const scale = containerWidth > 0 && totalBase > 0 ? Math.max(1, containerWidth / totalBase) : 1;
+    const scale = containerWidth > 0 && totalBase > 0 ? containerWidth / totalBase : 1;
 
     return columns.map((column) => {
       const key = String(column.accessorKey);
@@ -86,7 +88,7 @@ export default function DataTable<T extends object>({
         headerName: column.header,
         width,
         editable: column.meta?.editable !== false,
-        sortable: false,
+        sortable: column.meta?.sortable !== false,
         filterable: false,
         pinnable: false,
         editor: column.editor,
@@ -158,7 +160,7 @@ export default function DataTable<T extends object>({
                   },
                   {
                     id: "delete-row",
-                    label: "Eliminar fila",
+                    label: contextDeleteLabel,
                     danger: true,
                     onClick: () => onContextDelete?.(row.__original),
                   },
