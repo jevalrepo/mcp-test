@@ -5,6 +5,7 @@ import Layout from "./components/Layout";
 import Proyectos from "./pages/Proyectos";
 import DetalleProyecto from "./pages/DetalleProyecto";
 import Etapas from "./pages/Etapas";
+import SqlPage from "./pages/Sql";
 import { ToastProvider } from "./components/Toast";
 import { ConfirmProvider } from "./components/ConfirmDialog";
 
@@ -31,6 +32,7 @@ export default function App() {
                   <Route index element={<Proyectos />} />
                   <Route path="proyectos/:folio" element={<DetalleProyecto />} />
                   <Route path="etapas" element={<Etapas />} />
+                  <Route path="sql" element={<SqlPage />} />
                 </Route>
               </Routes>
             </BrowserRouter>

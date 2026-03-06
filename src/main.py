@@ -106,6 +106,7 @@ if __name__ == "__main__":
     from src.api.ppm.presentaciones import (
         list_presentaciones, generar_presentacion, eliminar_presentacion,
     )
+    from src.api.ppm.sql_console import execute_sql
 
     logger.info(
         "Iniciando %s en http://%s:%d (transporte SSE)",
@@ -172,6 +173,9 @@ if __name__ == "__main__":
             Route("/api/ppm/presentaciones", list_presentaciones, methods=["GET"]),
             Route("/api/ppm/presentaciones", generar_presentacion, methods=["POST"]),
             Route("/api/ppm/presentaciones/{nombre}", eliminar_presentacion, methods=["DELETE"]),
+
+            # -- API PPM - SQL Console --
+            Route("/api/ppm/sql/execute", execute_sql, methods=["POST"]),
 
             # ── Admin UI (React build) ────────────────────────────────────
             *_admin_routes,

@@ -51,3 +51,7 @@ export const getEtapas = (folio_ppm?: string) => {
 export const createEtapa = (data: any) => req<any>("/etapas", { method: "POST", body: JSON.stringify(data) });
 export const updateEtapa = (id: number, data: any) => req<any>(`/etapas/${id}`, { method: "PUT", body: JSON.stringify(data) });
 export const deleteEtapa = (id: number) => req<any>(`/etapas/${id}`, { method: "DELETE" });
+
+// SQL Console
+export const executeSql = (sql: string) =>
+  req<any>("/sql/execute", { method: "POST", body: JSON.stringify({ sql }) });
