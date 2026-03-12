@@ -28,7 +28,7 @@ class Proyecto(Base):
 
     ern = Column(String(100))
     le = Column(String(100))
-    ppm = Column(String(100))
+    pgm = Column(String(100))
 
     horas_internas = Column(Integer, default=0)
     horas_externas = Column(Integer, default=0)

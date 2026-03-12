@@ -108,7 +108,7 @@ def _proyecto_to_resumen(p: Proyecto) -> Resumen:
         lider_cliente=p.lider_cliente_nombre or "",
         ern=p.ern or "",
         le=p.le or "",
-        ppm=p.ppm or "",
+        ppm=p.pgm or "",
         descripcion_estatus=p.descripcion_estatus or "",
     )
 
@@ -416,7 +416,7 @@ def duplicar_proyecto_ppm(
             lider_cliente_nombre=origen.lider_cliente_nombre,
             ern=origen.ern,
             le=origen.le,
-            ppm=origen.ppm,
+            pgm=origen.pgm,
             horas_internas=origen.horas_internas,
             horas_externas=origen.horas_externas,
             horas_totales=origen.horas_totales,
@@ -511,6 +511,170 @@ def actualizar_actividad_gantt(
 
 
 # ── Tools MCP — Análisis ──────────────────────────────────────────────────────
+
+@mcp.tool()
+def resumir_proyecto(
+    folio: Annotated[str, "Folio PPM del proyecto (ej. 'F-199669')"],
+) -> str:
+    """
+    Genera un resumen ejecutivo completo de un proyecto: datos generales, avance,
+    actividades, riesgos activos y últimos cambios en el historial.
+    Ideal para responder preguntas de status sin hacer múltiples consultas.
+    """
+    from src.tools.ppm.db.models import Etapa, Riesgo
+    db = get_session()
+    try:
+        p = db.query(Proyecto).filter_by(folio_ppm=folio).first()
+        if not p:
+            raise ValueError(f"Proyecto '{folio}' no encontrado")
+
+        plan = float(p.avance_planeado or 0)
+        real = float(p.avance_real or 0)
+        brecha = round(plan - real, 1)
+        estado_avance = (
+            "AL DÍA" if brecha <= 0
+            else "RETRASADO LEVE" if brecha <= 10
+            else "RETRASADO MODERADO" if brecha <= 25
+            else "RETRASADO CRÍTICO"
+        )
+
+        acts = sorted(p.actividades, key=lambda a: a.orden if a.orden is not None else 99)
+        acts_con_avance = [a for a in acts if a.avance is not None]
+        acts_completas = [a for a in acts_con_avance if float(a.avance) == 100]
+        acts_en_curso = [a for a in acts_con_avance if 0 < float(a.avance) < 100]
+        acts_sin_iniciar = [a for a in acts if a.avance is None or float(a.avance) == 0]
+
+        riesgos_activos = [r for r in p.riesgos if r.activo]
+
+        historial = (
+            db.query(HistorialAvance)
+            .filter_by(folio_ppm=folio)
+            .order_by(HistorialAvance.fecha.desc())
+            .limit(5)
+            .all()
+        )
+
+        lines = [
+            f"{'='*60}",
+            f"RESUMEN EJECUTIVO — {folio}",
+            f"{'='*60}",
+            f"Proyecto    : {p.nombre_proyecto or '—'}",
+            f"Área        : {p.area_nombre or '—'}",
+            f"Líder       : {p.lider_cliente_nombre or '—'}",
+            f"ERN / LE    : {p.ern or '—'} / {p.le or '—'}",
+            f"Estatus     : {p.estatus or '—'}",
+            f"Inicio      : {p.fecha_inicio or '—'}",
+            f"Fin lib.    : {p.fecha_fin_liberacion or '—'}",
+            f"Fin gar.    : {p.fecha_fin_garantia or '—'}",
+            "",
+            f"── AVANCE {'─'*40}",
+            f"  Planeado  : {plan:.1f}%",
+            f"  Real      : {real:.1f}%",
+            f"  Brecha    : {brecha:+.1f}%  →  {estado_avance}",
+            "",
+            f"── ACTIVIDADES ({len(acts)} total) {'─'*30}",
+        ]
+        for a in acts:
+            av = f"{float(a.avance):.0f}%" if a.avance is not None else "—"
+            lines.append(f"  {'✓' if a.avance and float(a.avance)==100 else '●' if a.avance and float(a.avance)>0 else '○'} {a.actividad or '?':30s}  {av:>5}  {a.responsable_nombre or ''}")
+        lines += [
+            f"  Completas  : {len(acts_completas)} | En curso: {len(acts_en_curso)} | Sin iniciar: {len(acts_sin_iniciar)}",
+            "",
+            f"── RIESGOS ACTIVOS ({len(riesgos_activos)}) {'─'*30}",
+        ]
+        for r in riesgos_activos:
+            lines.append(f"  • {r.riesgo or '?'}")
+            if r.mitigacion:
+                lines.append(f"    Mitigación: {r.mitigacion}")
+
+        if p.descripcion_estatus:
+            lines += ["", f"── DESCRIPCIÓN DE ESTATUS {'─'*28}", f"  {p.descripcion_estatus}"]
+
+        lines += ["", f"── ÚLTIMOS CAMBIOS ({len(historial)}) {'─'*30}"]
+        for h in historial:
+            fecha = h.fecha.strftime("%d/%m/%Y %H:%M") if h.fecha else "—"
+            ref = f" [{h.referencia}]" if h.referencia else ""
+            lines.append(f"  {fecha}  {h.campo}{ref}: {h.valor_anterior} → {h.valor_nuevo}")
+
+        lines.append(f"{'='*60}")
+        return "\n".join(lines)
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def alerta_proyectos_retrasados(
+    umbral_leve: Annotated[float, "Brecha mínima para considerar retraso leve (puntos %)"] = 5.0,
+    solo_estatus: Annotated[
+        str | None,
+        "Filtrar por estatus específico (ej. 'Ejecución'). None = todos los activos."
+    ] = None,
+) -> dict:
+    """
+    Analiza el portafolio y devuelve proyectos retrasados clasificados por severidad.
+    Incluye actividades más rezagadas y descripción de estatus para cada proyecto.
+    """
+    db = get_session()
+    try:
+        q = db.query(Proyecto).filter(Proyecto.activo == 1)
+        if solo_estatus:
+            q = q.filter(Proyecto.estatus == solo_estatus)
+        proyectos = q.order_by(Proyecto.folio_ppm).all()
+
+        criticos, moderados, leves, al_dia = [], [], [], []
+
+        for p in proyectos:
+            plan = float(p.avance_planeado or 0)
+            real = float(p.avance_real or 0)
+            brecha = round(plan - real, 2)
+
+            acts = sorted(p.actividades, key=lambda a: a.orden if a.orden is not None else 99)
+            act_rezagada = None
+            for a in acts:
+                if a.avance is not None and float(a.avance) < 100:
+                    act_rezagada = {"actividad": a.actividad, "avance": float(a.avance)}
+                    break
+
+            entrada = {
+                "folio_ppm": p.folio_ppm,
+                "nombre_proyecto": p.nombre_proyecto,
+                "lider_cliente": p.lider_cliente_nombre,
+                "estatus": p.estatus,
+                "avance_planeado": plan,
+                "avance_real": real,
+                "brecha_pct": brecha,
+                "descripcion_estatus": p.descripcion_estatus,
+                "actividad_rezagada": act_rezagada,
+                "fecha_fin_liberacion": p.fecha_fin_liberacion,
+            }
+
+            if brecha <= 0:
+                al_dia.append(entrada)
+            elif brecha < umbral_leve:
+                leves.append(entrada)
+            elif brecha < 25:
+                moderados.append(entrada)
+            else:
+                criticos.append(entrada)
+
+        for lista in (criticos, moderados, leves):
+            lista.sort(key=lambda x: x["brecha_pct"], reverse=True)
+
+        return {
+            "resumen": {
+                "total_evaluados": len(proyectos),
+                "criticos": len(criticos),
+                "moderados": len(moderados),
+                "leves": len(leves),
+                "al_dia": len(al_dia),
+            },
+            "criticos_brecha_gt_25pct": criticos,
+            "moderados_brecha_10_25pct": moderados,
+            "leves_brecha_lt_10pct": leves,
+        }
+    finally:
+        db.close()
+
 
 @mcp.tool()
 def proyectos_retrasados_ppm() -> list[dict]:

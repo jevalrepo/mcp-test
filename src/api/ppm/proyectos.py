@@ -79,7 +79,7 @@ def _serialize(p: Proyecto) -> dict:
         "lider_cliente_nombre": p.lider_cliente_nombre,
         "ern": p.ern,
         "le": p.le,
-        "ppm": p.ppm,
+        "pgm": p.pgm,
         "horas_internas": p.horas_internas,
         "horas_externas": p.horas_externas,
         "horas_totales": p.horas_totales,
@@ -182,7 +182,7 @@ async def create_proyecto(request: Request) -> JSONResponse:
             lider_cliente_nombre=body.get("lider_cliente_nombre"),
             ern=body.get("ern"),
             le=body.get("le"),
-            ppm=body.get("ppm"),
+            pgm=body.get("le"),
             horas_internas=body.get("horas_internas", 0),
             horas_externas=body.get("horas_externas", 0),
             horas_totales=body.get("horas_totales", 0),
@@ -231,12 +231,15 @@ async def update_proyecto(request: Request) -> JSONResponse:
                 setattr(obj, campo_avance, nuevo)
 
         for field in ("nombre_proyecto", "objetivo", "activo", "area_nombre",
-                      "lider_cliente_nombre", "ern", "le", "ppm", "horas_internas",
+                      "lider_cliente_nombre", "ern", "le", "horas_internas",
                       "horas_externas", "horas_totales", "costo_total",
                       "fecha_inicio", "fecha_fin_liberacion", "fecha_fin_garantia",
                       "estatus", "descripcion_estatus"):
             if field in body:
                 setattr(obj, field, body[field])
+
+        if "le" in body:
+            obj.pgm = body["le"]
 
         obj.actualizado_en = datetime.utcnow()
         db.commit()

@@ -1,7 +1,7 @@
 {
     "python-envs.defaultEnvManager": "ms-python.python:system",
-    "python.defaultInterpreterPath": "C:\\Users\\a2277415\\source\\Desarrollo\\bin\\WPy64-31380\\python\\python.exe",
+    "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
     "terminal.integrated.env.windows": {
-        "PATH": "C:\\Users\\a2277415\\source\\Desarrollo\\bin\\WPy64-31380\\python;C:\\Users\\a2277415\\source\\Desarrollo\\bin\\WPy64-31380\\python\\Scripts;C:\\Users\\a2277415\\source\\Desarrollo\\bin\\node-bin\\node-v22.20.0-win-x64;${env:PATH}"
+        "PATH": "${workspaceFolder}\\.venv\\Scripts;C:\\Users\\a2277415\\source\\Desarrollo\\bin\\node-bin\\node-v22.20.0-win-x64;${env:PATH}"
     }
 }

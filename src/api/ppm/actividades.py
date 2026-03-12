@@ -90,8 +90,7 @@ def _sync_etapa(db, folio: str, actividad_nombre: str) -> None:
     else:
         nuevo_estatus = "EN_CURSO"
 
-    etapa = db.query(Etapa).filter_by(folio_ppm=folio, nombre=etapa_nombre).first()
-    if etapa:
+    for etapa in db.query(Etapa).filter_by(folio_ppm=folio, nombre=etapa_nombre).all():
         etapa.estatus = nuevo_estatus
 
 

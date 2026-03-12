@@ -119,3 +119,67 @@ def mover_archivo(
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src), str(dst))
     return f"Movido: '{origen}' → '{destino}'"
+
+
+@mcp.tool()
+def buscar_en_archivos(
+    texto: Annotated[str, "Texto o expresión a buscar dentro de los archivos"],
+    directorio: Annotated[str, "Directorio de búsqueda relativo al base ('' para todo)"] = "",
+    extension: Annotated[str, "Filtrar por extensión sin punto (ej. 'csv', 'txt'). Vacío = todos"] = "",
+    max_resultados: Annotated[int, "Número máximo de coincidencias a devolver"] = 50,
+    ignorar_mayusculas: Annotated[bool, "Si True, la búsqueda no distingue mayúsculas"] = True,
+) -> dict:
+    """Busca texto dentro del contenido de archivos. Devuelve archivo, línea y contexto de cada coincidencia."""
+    import re
+
+    path = _safe_path(directorio)
+    if not path.is_dir():
+        raise NotADirectoryError(f"'{directorio}' no es un directorio.")
+
+    patron_glob = f"**/*.{extension}" if extension else "**/*"
+    flags = re.IGNORECASE if ignorar_mayusculas else 0
+
+    try:
+        regex = re.compile(re.escape(texto), flags)
+    except re.error as e:
+        raise ValueError(f"Texto de búsqueda inválido: {e}")
+
+    resultados = []
+    archivos_revisados = 0
+    archivos_con_coincidencia = 0
+
+    for archivo in sorted(path.glob(patron_glob)):
+        if not archivo.is_file():
+            continue
+        try:
+            contenido = archivo.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+
+        archivos_revisados += 1
+        encontrado_en_archivo = False
+
+        for num_linea, linea in enumerate(contenido.splitlines(), start=1):
+            if len(resultados) >= max_resultados:
+                break
+            if regex.search(linea):
+                if not encontrado_en_archivo:
+                    encontrado_en_archivo = True
+                    archivos_con_coincidencia += 1
+                resultados.append({
+                    "archivo": str(archivo.relative_to(BASE_DIR)),
+                    "linea": num_linea,
+                    "contenido": linea.strip(),
+                })
+
+        if len(resultados) >= max_resultados:
+            break
+
+    return {
+        "texto_buscado": texto,
+        "archivos_revisados": archivos_revisados,
+        "archivos_con_coincidencia": archivos_con_coincidencia,
+        "total_coincidencias": len(resultados),
+        "limite_alcanzado": len(resultados) >= max_resultados,
+        "resultados": resultados,
+    }

@@ -18,6 +18,26 @@ def get_db_path() -> str:
     return str(path)
 
 
+def _migrate_rename_ppm_to_pgm(engine) -> None:
+    """Renombra proyectos.ppm → proyectos.pgm y sincroniza pgm = le."""
+    with engine.begin() as conn:
+        table_exists = conn.execute(
+            text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='proyectos' LIMIT 1")
+        ).scalar()
+        if not table_exists:
+            return
+
+        columns = conn.execute(text("PRAGMA table_info(proyectos)")).fetchall()
+        col_names = [str(col[1]).lower() for col in columns]
+
+        if "ppm" in col_names:
+            conn.execute(text("ALTER TABLE proyectos RENAME COLUMN ppm TO pgm"))
+
+        # Sincronizar pgm = le para todos los registros existentes
+        if "pgm" in col_names or "ppm" in col_names:
+            conn.execute(text("UPDATE proyectos SET pgm = le WHERE pgm IS NULL OR pgm != le"))
+
+
 def _migrate_drop_actividades_color(engine) -> None:
     """Elimina actividades.color si existe, preservando registros."""
     with engine.begin() as conn:
@@ -60,6 +80,7 @@ def get_engine():
     if _ENGINE is None:
         db_url = f"sqlite:///{get_db_path()}"
         _ENGINE = create_engine(db_url, connect_args={"check_same_thread": False})
+        _migrate_rename_ppm_to_pgm(_ENGINE)
         _migrate_drop_actividades_color(_ENGINE)
     return _ENGINE
 
