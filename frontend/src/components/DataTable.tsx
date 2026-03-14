@@ -95,9 +95,10 @@ export default function DataTable<T extends object>({
         editorParams: column.editorParams,
         renderCell: column.cell
           ? (row) => {
+              const cellFn = column.cell!;
               const r = row as GridRow<T>;
               const record = asRecord(r.__original);
-              return column.cell({
+              return cellFn({
                 cell: { getValue: () => record[key] },
                 row: { original: r.__original },
               });
@@ -131,7 +132,6 @@ export default function DataTable<T extends object>({
           <div className="text-center py-12 text-sm text-gray-400">Sin registros</div>
         ) : (
           <DataGrid
-            style={{ width: "100%", height: "100%" }}
             columns={gridColumns}
             rows={gridRows}
             pageSize={pageSize}

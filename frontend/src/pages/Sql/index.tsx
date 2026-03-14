@@ -178,7 +178,7 @@ export default function SqlPage() {
   }, [tabs, activeTabId, nextTabId]);
 
   const runMut = useMutation({
-    mutationFn: async ({ tabId, statements }: { tabId: number; statements: string[] }) => {
+    mutationFn: async ({ statements }: { tabId: number; statements: string[] }) => {
       let lastResult: any = null;
       let totalMs = 0;
       for (const stmt of statements) {

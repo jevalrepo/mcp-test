@@ -22,9 +22,6 @@ import {
 import { useToast } from "../../components/Toast";
 import { useConfirm } from "../../components/ConfirmDialog";
 
-function pct(val: number) {
-  return `${Math.round(val)}%`;
-}
 
 const ESTATUS_OPTIONS = ["", "Ejecución", "Por revisar", "Cerrado", "Cancelado"] as const;
 
@@ -104,11 +101,6 @@ function toUiPercent(val: unknown) {
   return Math.round(n);
 }
 
-function toDbPercent(val: unknown) {
-  const n = Number(val ?? 0);
-  if (!Number.isFinite(n)) return 0;
-  return Math.round(Math.max(0, Math.min(100, n)));
-}
 
 function round1(val: number) {
   return Math.round(val * 10) / 10;
@@ -840,7 +832,6 @@ export default function Proyectos() {
                   </div>
                 ) : (
                   <DataGrid
-                    style={{ width: "100%", height: "100%" }}
                     columns={pptxGridColumns}
                     rows={pptxGridRows}
                     pageSize={10}

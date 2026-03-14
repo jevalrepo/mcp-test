@@ -119,9 +119,13 @@ if __name__ == "__main__":
     _frontend_dist = Path("frontend/dist")
     _admin_routes = []
     if _frontend_dist.exists():
+        async def serve_ppm_spa(request: Request) -> FileResponse:
+            return FileResponse(str(_frontend_dist / "index.html"))
+
         _admin_routes = [
             Mount("/assets", app=StaticFiles(directory=str(_frontend_dist / "assets"))),
-            Mount("/ppm", app=StaticFiles(directory=str(_frontend_dist), html=True)),
+            Route("/ppm", serve_ppm_spa),
+            Route("/ppm/{path:path}", serve_ppm_spa),
         ]
 
     middleware = [

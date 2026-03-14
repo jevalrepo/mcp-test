@@ -1,0 +1,41 @@
+Tengo errores de TypeScript que impiden el build. Aplica estos fixes:
+
+1. En `src/components/DataTable.tsx`:
+   - En la función `renderCell`, captura `column.cell` en una variable local antes de invocarla: `const cellFn = column.cell!;` y usa `cellFn(...)` en lugar de `column.cell(...)`.
+   - Elimina la prop `style={{ width: "100%", height: "100%" }}` del componente `<DataGrid>`.
+
+2. En `src/pages/Proyectos/index.tsx`:
+   - Elimina la función `pct`.
+   - Elimina la función `toDbPercent`.
+   - Elimina la prop `style={{ width: "100%", height: "100%" }}` del componente `<DataGrid>`.
+
+3. En `src/pages/Sql/index.tsx`:
+   - En el `mutationFn` de `useMutation`, elimina `tabId` del destructuring del parámetro (queda solo `{ statements }`), manteniendo el tipo completo `{ tabId: number; statements: string[] }`.
+
+---
+
+En `src/main.py`, dentro del bloque `if __name__ == "__main__":`, reemplaza la sección de rutas estáticas del frontend por una que sirva `index.html` para todas las rutas de la SPA (fix para React Router + rutas sin trailing slash).
+
+Busca este bloque:
+
+    _frontend_dist = Path("frontend/dist")
+    _admin_routes = []
+    if _frontend_dist.exists():
+        _admin_routes = [
+            Mount("/assets", app=StaticFiles(directory=str(_frontend_dist / "assets"))),
+            Mount("/ppm", app=StaticFiles(directory=str(_frontend_dist), html=True)),
+        ]
+
+Y reemplázalo por:
+
+    _frontend_dist = Path("frontend/dist")
+    _admin_routes = []
+    if _frontend_dist.exists():
+        async def serve_ppm_spa(request: Request) -> FileResponse:
+            return FileResponse(str(_frontend_dist / "index.html"))
+
+        _admin_routes = [
+            Mount("/assets", app=StaticFiles(directory=str(_frontend_dist / "assets"))),
+            Route("/ppm", serve_ppm_spa),
+            Route("/ppm/{path:path}", serve_ppm_spa),
+        ]
